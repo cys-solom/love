@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, enableNetwork, disableNetwork, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, enableNetwork } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -18,8 +19,36 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firestore
 export const db = getFirestore(app);
 
+// Initialize Auth for anonymous authentication
+export const auth = getAuth(app);
+
 // Initialize Storage
 export const storage = getStorage(app);
+
+// Auto sign in anonymously
+let isAuthInitialized = false;
+const initializeAuth = async () => {
+  if (isAuthInitialized) return;
+  
+  try {
+    await signInAnonymously(auth);
+    console.log('✅ تم تسجيل الدخول بشكل مجهول');
+    isAuthInitialized = true;
+  } catch (error) {
+    console.error('❌ فشل في تسجيل الدخول المجهول:', error);
+  }
+};
+
+// Listen for auth state changes
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    console.log('👤 المستخدم مسجل الدخول:', user.uid);
+    isAuthInitialized = true;
+  } else {
+    console.log('👤 المستخدم غير مسجل الدخول');
+    isAuthInitialized = false;
+  }
+});
 
 // Collections
 export const COLLECTIONS = {
@@ -54,6 +83,16 @@ export const testFirebaseConnection = async () => {
 
 // Helper functions for Firestore operations
 export const firestoreHelpers = {
+  // Ensure authentication before operations
+  async ensureAuthentication() {
+    if (!isAuthInitialized) {
+      await initializeAuth();
+      // Wait a bit for auth to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    return isAuthInitialized;
+  },
+
   // Test connection before operations
   async ensureConnection() {
     try {
@@ -65,12 +104,18 @@ export const firestoreHelpers = {
     }
   },
 
-  // Add a document with better error handling
+  // Add a document with authentication
   async addDocument(collectionName: string, data: any) {
     try {
       console.log(`📝 Adding document to ${collectionName}...`);
       
-      // Test connection first
+      // Ensure authentication first
+      const isAuthenticated = await this.ensureAuthentication();
+      if (!isAuthenticated) {
+        throw new Error('Authentication failed');
+      }
+      
+      // Test connection
       const isOnline = await this.ensureConnection();
       if (!isOnline) {
         throw new Error('No network connection available');
@@ -79,7 +124,8 @@ export const firestoreHelpers = {
       const docRef = await addDoc(collection(db, collectionName), {
         ...data,
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        userId: auth.currentUser?.uid || 'anonymous'
       });
       
       console.log('✅ Document written with ID:', docRef.id);
@@ -87,9 +133,8 @@ export const firestoreHelpers = {
     } catch (error) {
       console.error('❌ Error adding document to Firebase:', error);
       
-      // Provide more specific error messages
       if (error.code === 'permission-denied') {
-        console.error('🔐 Permission denied. Check Firestore security rules.');
+        console.error('🔐 Permission denied. User might not be authenticated.');
       } else if (error.code === 'unavailable') {
         console.error('🌐 Firebase service unavailable. Check internet connection.');
       }
@@ -98,12 +143,19 @@ export const firestoreHelpers = {
     }
   },
 
-  // Get all documents from a collection with better error handling
+  // Get all documents with authentication
   async getDocuments(collectionName: string) {
     try {
       console.log(`📖 Getting documents from ${collectionName}...`);
       
-      // Test connection first
+      // Ensure authentication first
+      const isAuthenticated = await this.ensureAuthentication();
+      if (!isAuthenticated) {
+        console.warn('Authentication failed, returning empty array');
+        return [];
+      }
+      
+      // Test connection
       const isOnline = await this.ensureConnection();
       if (!isOnline) {
         console.warn('No network connection, returning empty array');
@@ -127,12 +179,9 @@ export const firestoreHelpers = {
       console.error('❌ Error getting documents from Firebase:', error);
       
       if (error.code === 'permission-denied') {
-        console.error('🔐 Permission denied. Check Firestore security rules.');
-      } else if (error.code === 'unavailable') {
-        console.error('🌐 Firebase service unavailable. Check internet connection.');
+        console.error('🔐 Permission denied. Check authentication or Firestore rules.');
       }
       
-      // Return empty array instead of throwing, so app continues to work
       return [];
     }
   },
@@ -179,7 +228,8 @@ export const firestoreHelpers = {
   }
 };
 
-// Initialize connection test on module load
+// Initialize authentication on module load
 if (typeof window !== 'undefined') {
+  initializeAuth();
   testFirebaseConnection();
 }
