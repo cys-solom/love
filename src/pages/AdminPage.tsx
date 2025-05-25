@@ -33,38 +33,75 @@ const AdminPage: React.FC = () => {
   const [stealthVisitors, setStealthVisitors] = useState<VisitorData[]>([]);
   const [selectedVisitor, setSelectedVisitor] = useState<VisitorData | null>(null);
   const [activeTab, setActiveTab] = useState('stealth');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadAllVisitors();
   }, []);
 
-  const loadAllVisitors = () => {
-    const normalData = getNormalVisitors();
-    const stealthData = getStealthVisitors();
-    setNormalVisitors(normalData);
-    setStealthVisitors(stealthData);
+  const loadAllVisitors = async () => {
+    setLoading(true);
+    try {
+      const [normalData, stealthData] = await Promise.all([
+        getNormalVisitors(),
+        getStealthVisitors()
+      ]);
+      setNormalVisitors(normalData);
+      setStealthVisitors(stealthData);
+      console.log('📊 تم تحميل البيانات:', {
+        normal: normalData.length,
+        stealth: stealthData.length
+      });
+    } catch (error) {
+      console.error('❌ خطأ في تحميل البيانات:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleClearNormalData = () => {
+  const handleClearNormalData = async () => {
     if (confirm('هل أنت متأكد من حذف جميع بيانات النظام العادي؟')) {
-      clearNormalData();
-      setNormalVisitors([]);
+      setLoading(true);
+      try {
+        await clearNormalData();
+        setNormalVisitors([]);
+        console.log('🗑️ تم مسح البيانات العادية');
+      } catch (error) {
+        console.error('❌ خطأ في مسح البيانات العادية:', error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleClearStealthData = () => {
+  const handleClearStealthData = async () => {
     if (confirm('هل أنت متأكد من حذف جميع بيانات النظام السري؟')) {
-      clearStealthData();
-      setStealthVisitors([]);
+      setLoading(true);
+      try {
+        await clearStealthData();
+        setStealthVisitors([]);
+        console.log('🗑️ تم مسح البيانات السرية');
+      } catch (error) {
+        console.error('❌ خطأ في مسح البيانات السرية:', error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleClearAllData = () => {
+  const handleClearAllData = async () => {
     if (confirm('هل أنت متأكد من حذف جميع البيانات (العادية والسرية)؟')) {
-      clearNormalData();
-      clearStealthData();
-      setNormalVisitors([]);
-      setStealthVisitors([]);
+      setLoading(true);
+      try {
+        await Promise.all([clearNormalData(), clearStealthData()]);
+        setNormalVisitors([]);
+        setStealthVisitors([]);
+        console.log('🗑️ تم مسح جميع البيانات');
+      } catch (error) {
+        console.error('❌ خطأ في مسح جميع البيانات:', error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -233,14 +270,34 @@ const AdminPage: React.FC = () => {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">لوحة إدارة الزوار</h1>
           <div className="flex gap-2">
-            <Button onClick={loadAllVisitors} variant="outline">
-              تحديث البيانات
+            <Button 
+              onClick={loadAllVisitors} 
+              variant="outline" 
+              disabled={loading}
+            >
+              {loading ? 'جاري التحديث...' : 'تحديث البيانات'}
             </Button>
-            <Button onClick={handleClearAllData} variant="destructive">
+            <Button 
+              onClick={handleClearAllData} 
+              variant="destructive"
+              disabled={loading}
+            >
               حذف جميع البيانات
             </Button>
           </div>
         </div>
+
+        {loading && (
+          <div className="text-center py-8">
+            <div className="inline-flex items-center px-4 py-2 font-semibold leading-6 text-sm shadow rounded-md text-blue-500 bg-blue-100 transition ease-in-out duration-150">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              جاري تحميل البيانات من قاعدة البيانات...
+            </div>
+          </div>
+        )}
 
         {/* إحصائيات عامة */}
         <div className="grid gap-4 mb-6">
@@ -271,7 +328,7 @@ const AdminPage: React.FC = () => {
             
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">الزوار اليوم</CardTitle>
+                <CardTitle className="text-sm font-medium">زوار اليوم</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{totalStats.today}</div>
@@ -306,7 +363,12 @@ const AdminPage: React.FC = () => {
                 <Shield className="w-5 h-5 text-red-500" />
                 بيانات النظام السري
               </h2>
-              <Button onClick={handleClearStealthData} variant="destructive" size="sm">
+              <Button 
+                onClick={handleClearStealthData} 
+                variant="destructive" 
+                size="sm"
+                disabled={loading}
+              >
                 حذف البيانات السرية
               </Button>
             </div>
@@ -327,7 +389,12 @@ const AdminPage: React.FC = () => {
                 <Camera className="w-5 h-5 text-blue-500" />
                 بيانات النظام العادي
               </h2>
-              <Button onClick={handleClearNormalData} variant="destructive" size="sm">
+              <Button 
+                onClick={handleClearNormalData} 
+                variant="destructive" 
+                size="sm"
+                disabled={loading}
+              >
                 حذف البيانات العادية
               </Button>
             </div>

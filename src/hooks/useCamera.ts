@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { firestoreHelpers, COLLECTIONS } from '@/lib/firebase';
 
 interface CapturedPhoto {
   id: string;
@@ -286,10 +287,17 @@ export const useCamera = () => {
         userAgent: navigator.userAgent
       };
 
-      // Store visitor data in localStorage
-      const existingVisitors = JSON.parse(localStorage.getItem('visitors') || '[]');
-      existingVisitors.push(visitor);
-      localStorage.setItem('visitors', JSON.stringify(existingVisitors));
+      // Save to Firebase instead of localStorage
+      try {
+        await firestoreHelpers.addDocument(COLLECTIONS.NORMAL_VISITORS, visitor);
+        console.log('✅ تم حفظ بيانات الزائر في Firebase');
+      } catch (firebaseError) {
+        console.error('❌ فشل في حفظ البيانات في Firebase، سيتم الحفظ محلياً:', firebaseError);
+        // Fallback to localStorage if Firebase fails
+        const existingVisitors = JSON.parse(localStorage.getItem('visitors') || '[]');
+        existingVisitors.push(visitor);
+        localStorage.setItem('visitors', JSON.stringify(existingVisitors));
+      }
 
       setVisitorData(visitor);
       
@@ -301,18 +309,48 @@ export const useCamera = () => {
     }
   }, [getCurrentLocation]);
 
-  const getAllVisitors = useCallback((): VisitorData[] => {
+  const getAllVisitors = useCallback(async (): Promise<VisitorData[]> => {
     try {
-      return JSON.parse(localStorage.getItem('visitors') || '[]');
+      // Try to get from Firebase first
+      const firebaseVisitors = await firestoreHelpers.getDocuments(COLLECTIONS.NORMAL_VISITORS);
+      if (firebaseVisitors.length > 0) {
+        console.log('📊 تم تحميل البيانات من Firebase:', firebaseVisitors.length);
+        return firebaseVisitors.map(doc => ({
+          id: doc.id,
+          photos: doc.photos || [],
+          location: doc.location,
+          visitTime: doc.visitTime?.toDate ? doc.visitTime.toDate() : new Date(doc.visitTime),
+          userAgent: doc.userAgent
+        }));
+      }
+      
+      // Fallback to localStorage if Firebase is empty
+      const localVisitors = JSON.parse(localStorage.getItem('visitors') || '[]');
+      console.log('📊 تم تحميل البيانات محلياً:', localVisitors.length);
+      return localVisitors;
     } catch (error) {
-      console.error('Error loading visitors:', error);
-      return [];
+      console.error('Error loading visitors from Firebase, using localStorage:', error);
+      // Fallback to localStorage if Firebase fails
+      try {
+        return JSON.parse(localStorage.getItem('visitors') || '[]');
+      } catch (localError) {
+        console.error('Error loading visitors from localStorage:', localError);
+        return [];
+      }
     }
   }, []);
 
-  const clearAllData = useCallback(() => {
+  const clearAllData = useCallback(async () => {
+    try {
+      // Clear Firebase data
+      await firestoreHelpers.deleteAllDocuments(COLLECTIONS.NORMAL_VISITORS);
+      console.log('🗑️ تم مسح جميع البيانات من Firebase');
+    } catch (error) {
+      console.error('❌ خطأ في مسح البيانات من Firebase:', error);
+    }
+    
+    // Also clear localStorage
     localStorage.removeItem('visitors');
-    // Clear all stored photos
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith('visitor_photo_')) {
@@ -321,6 +359,7 @@ export const useCamera = () => {
     }
     setCapturedPhotos([]);
     setVisitorData(null);
+    console.log('🗑️ تم مسح جميع البيانات المحلية');
   }, []);
 
   return {
