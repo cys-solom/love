@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import PremiumPage from "./pages/PremiumPage";
 import AdminPage from "./pages/AdminPage";
 import NotFound from "./pages/NotFound";
+import FirebaseTest from "./components/FirebaseTest";
 
 const queryClient = new QueryClient();
 
@@ -20,6 +21,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/premium" element={<PremiumPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/firebase-test" element={<FirebaseTest />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

