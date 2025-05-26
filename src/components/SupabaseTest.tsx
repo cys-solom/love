@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { testFirebaseConnection, firestoreHelpers, COLLECTIONS } from '@/lib/firebase';
+import { testSupabaseConnection, supabaseHelpers, TABLES } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-const FirebaseTest: React.FC = () => {
+const SupabaseTest: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'testing' | 'success' | 'failed'>('testing');
   const [testResults, setTestResults] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,18 +18,18 @@ const FirebaseTest: React.FC = () => {
 
   const testConnection = async () => {
     setIsLoading(true);
-    addLog('🔥 بدء اختبار الاتصال بـ Firebase...');
+    addLog('🚀 بدء اختبار الاتصال بـ Supabase...');
     
     try {
-      const result = await testFirebaseConnection();
+      const result = await testSupabaseConnection();
       if (result) {
         setConnectionStatus('success');
-        addLog('✅ نجح الاتصال بـ Firebase');
+        addLog('✅ نجح الاتصال بـ Supabase');
       } else {
         setConnectionStatus('failed');
-        addLog('❌ فشل الاتصال بـ Firebase');
+        addLog('❌ فشل الاتصال بـ Supabase');
       }
-    } catch (error) {
+    } catch (error: any) {
       setConnectionStatus('failed');
       addLog(`❌ خطأ في الاتصال: ${error.message}`);
     } finally {
@@ -37,35 +37,46 @@ const FirebaseTest: React.FC = () => {
     }
   };
 
-  const testAddDocument = async () => {
+  const testAddVisitor = async () => {
     setIsLoading(true);
-    addLog('📝 اختبار إضافة مستند...');
+    addLog('📝 اختبار إضافة زائر...');
     
     try {
       const testData = {
-        id: `test_${Date.now()}`,
-        message: 'Test document',
-        timestamp: new Date()
+        id: `test_visitor_${Date.now()}`,
+        photos: [{
+          id: 'test_photo',
+          dataUrl: 'data:image/jpeg;base64,test',
+          timestamp: new Date()
+        }],
+        location: {
+          latitude: 30.0444,
+          longitude: 31.2357,
+          accuracy: 10,
+          timestamp: new Date()
+        },
+        visitTime: new Date(),
+        userAgent: navigator.userAgent
       };
       
-      const docId = await firestoreHelpers.addDocument('test_collection', testData);
-      addLog(`✅ تم إضافة المستند بنجاح. ID: ${docId}`);
-    } catch (error) {
-      addLog(`❌ فشل في إضافة المستند: ${error.message}`);
+      const visitorId = await supabaseHelpers.addVisitor(TABLES.NORMAL_VISITORS, testData);
+      addLog(`✅ تم إضافة الزائر بنجاح. ID: ${visitorId}`);
+    } catch (error: any) {
+      addLog(`❌ فشل في إضافة الزائر: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const testGetDocuments = async () => {
+  const testGetVisitors = async () => {
     setIsLoading(true);
-    addLog('📖 اختبار قراءة المستندات...');
+    addLog('📖 اختبار قراءة الزوار...');
     
     try {
-      const docs = await firestoreHelpers.getDocuments('test_collection');
-      addLog(`✅ تم قراءة ${docs.length} مستند`);
-    } catch (error) {
-      addLog(`❌ فشل في قراءة المستندات: ${error.message}`);
+      const visitors = await supabaseHelpers.getVisitors(TABLES.NORMAL_VISITORS);
+      addLog(`✅ تم قراءة ${visitors.length} زائر`);
+    } catch (error: any) {
+      addLog(`❌ فشل في قراءة الزوار: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +91,7 @@ const FirebaseTest: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            🔥 اختبار Firebase
+            🚀 اختبار Supabase
             <div className={`w-3 h-3 rounded-full ${
               connectionStatus === 'success' ? 'bg-green-500' :
               connectionStatus === 'failed' ? 'bg-red-500' : 'bg-yellow-500'
@@ -92,10 +103,10 @@ const FirebaseTest: React.FC = () => {
             <Button onClick={testConnection} disabled={isLoading}>
               اختبار الاتصال
             </Button>
-            <Button onClick={testAddDocument} disabled={isLoading}>
+            <Button onClick={testAddVisitor} disabled={isLoading}>
               اختبار الإضافة
             </Button>
-            <Button onClick={testGetDocuments} disabled={isLoading}>
+            <Button onClick={testGetVisitors} disabled={isLoading}>
               اختبار القراءة
             </Button>
             <Button onClick={clearLogs} variant="outline">
@@ -130,4 +141,4 @@ const FirebaseTest: React.FC = () => {
   );
 };
 
-export default FirebaseTest;
+export default SupabaseTest;

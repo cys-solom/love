@@ -42,16 +42,36 @@ const AdminPage: React.FC = () => {
   const loadAllVisitors = async () => {
     setLoading(true);
     try {
+      console.log('🔍 بدء تحميل جميع البيانات...');
+      
+      // تشخيص localStorage أولاً
+      const stealthLocal = localStorage.getItem('stealth_visitors');
+      const normalLocal = localStorage.getItem('visitors');
+      
+      console.log('📊 فحص localStorage:', {
+        stealthLocal: stealthLocal ? JSON.parse(stealthLocal).length : 0,
+        normalLocal: normalLocal ? JSON.parse(normalLocal).length : 0,
+        allKeys: Object.keys(localStorage).filter(k => k.includes('visitor') || k.includes('stealth'))
+      });
+
       const [normalData, stealthData] = await Promise.all([
         getNormalVisitors(),
         getStealthVisitors()
       ]);
+      
+      console.log('📈 النتائج النهائية:', {
+        normal: normalData.length,
+        stealth: stealthData.length,
+        stealthSample: stealthData[0] ? {
+          id: stealthData[0].id,
+          photosCount: stealthData[0].photos?.length || 0,
+          hasLocation: !!stealthData[0].location,
+          visitTime: stealthData[0].visitTime
+        } : 'لا توجد بيانات'
+      });
+      
       setNormalVisitors(normalData);
       setStealthVisitors(stealthData);
-      console.log('📊 تم تحميل البيانات:', {
-        normal: normalData.length,
-        stealth: stealthData.length
-      });
     } catch (error) {
       console.error('❌ خطأ في تحميل البيانات:', error);
     } finally {
