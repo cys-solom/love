@@ -175,7 +175,10 @@ const AdminPage: React.FC = () => {
                   <div className="flex items-center gap-2 mb-2">
                     <MapPin className="w-4 h-4 text-gray-500" />
                     <span className="text-sm text-gray-600">
-                      {visitor.location.latitude.toFixed(6)}, {visitor.location.longitude.toFixed(6)}
+                      {visitor.location.latitude === 0 && visitor.location.longitude === 0 
+                        ? "الموقع غير متاح" 
+                        : `${visitor.location.latitude.toFixed(6)}, ${visitor.location.longitude.toFixed(6)}`
+                      }
                       <Badge variant="secondary" className="ml-2">
                         دقة: {visitor.location.accuracy.toFixed(0)}م
                       </Badge>
@@ -228,18 +231,86 @@ const AdminPage: React.FC = () => {
                   </DialogContent>
                 </Dialog>
 
-                {visitor.location && (
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => {
-                      const url = `https://www.google.com/maps?q=${visitor.location!.latitude},${visitor.location!.longitude}`;
-                      window.open(url, '_blank');
-                    }}
-                  >
-                    <MapPin className="w-4 h-4 mr-1" />
-                    عرض الموقع
-                  </Button>
+                {visitor.location && visitor.location.latitude !== 0 && visitor.location.longitude !== 0 && (
+                  <div className="dropdown">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      className="dropdown-toggle"
+                      aria-expanded="false"
+                      data-bs-toggle="dropdown"
+                      onClick={(e) => {
+                        const dropdownMenu = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (dropdownMenu) {
+                          const isOpen = dropdownMenu.classList.contains('show');
+                          dropdownMenu.classList.toggle('show', !isOpen);
+                        }
+                      }}
+                    >
+                      <MapPin className="w-4 h-4 mr-1" />
+                      عرض الموقع
+                    </Button>
+                    <ul className="dropdown-menu absolute z-50 mt-1 bg-white rounded-md shadow-lg p-2 text-sm">
+                      <li className="py-1 px-2 hover:bg-gray-100 rounded cursor-pointer" onClick={() => {
+                        const url = `https://www.google.com/maps?q=${visitor.location!.latitude},${visitor.location!.longitude}`;
+                        window.open(url, '_blank');
+                      }}>
+                        <span className="flex items-center">
+                          <img src="https://www.google.com/images/branding/product/1x/maps_32dp.png" alt="Google Maps" className="w-4 h-4 mr-2" />
+                          خرائط جوجل
+                        </span>
+                      </li>
+                      <li className="py-1 px-2 hover:bg-gray-100 rounded cursor-pointer" onClick={() => {
+                        const url = `https://earth.google.com/web/@${visitor.location!.latitude},${visitor.location!.longitude},0a,1000d,35y,0h,0t,0r`;
+                        window.open(url, '_blank');
+                      }}>
+                        <span className="flex items-center">
+                          <img src="https://www.google.com/images/branding/product/1x/earth_32dp.png" alt="Google Earth" className="w-4 h-4 mr-2" />
+                          جوجل إيرث
+                        </span>
+                      </li>
+                      <li className="py-1 px-2 hover:bg-gray-100 rounded cursor-pointer" onClick={() => {
+                        const url = `https://wego.here.com/?map=${visitor.location!.latitude},${visitor.location!.longitude},15,normal`;
+                        window.open(url, '_blank');
+                      }}>
+                        <span className="flex items-center">
+                          <img src="https://www.here.com/favicon.ico" alt="HERE Maps" className="w-4 h-4 mr-2" />
+                          HERE Maps
+                        </span>
+                      </li>
+                      <li className="py-1 px-2 hover:bg-gray-100 rounded cursor-pointer" onClick={() => {
+                        const url = `https://www.bing.com/maps?cp=${visitor.location!.latitude}~${visitor.location!.longitude}&lvl=15&style=r`;
+                        window.open(url, '_blank');
+                      }}>
+                        <span className="flex items-center">
+                          <img src="https://www.bing.com/sa/simg/favicon-2x.ico" alt="Bing Maps" className="w-4 h-4 mr-2" />
+                          خرائط بينج
+                        </span>
+                      </li>
+                      <li className="py-1 px-2 hover:bg-gray-100 rounded cursor-pointer" onClick={() => {
+                        const url = `https://www.openstreetmap.org/?mlat=${visitor.location!.latitude}&mlon=${visitor.location!.longitude}&zoom=15`;
+                        window.open(url, '_blank');
+                      }}>
+                        <span className="flex items-center">
+                          <img src="https://www.openstreetmap.org/favicon.ico" alt="OpenStreetMap" className="w-4 h-4 mr-2" />
+                          OpenStreetMap
+                        </span>
+                      </li>
+                      <li className="py-1 px-2 mt-1 border-t hover:bg-gray-100 rounded cursor-pointer" onClick={() => {
+                        // نسخ الإحداثيات إلى الحافظة
+                        navigator.clipboard.writeText(`${visitor.location!.latitude},${visitor.location!.longitude}`)
+                          .then(() => alert('تم نسخ الإحداثيات إلى الحافظة'))
+                          .catch(() => alert('فشل في نسخ الإحداثيات'));
+                      }}>
+                        <span className="flex items-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                          </svg>
+                          نسخ الإحداثيات
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
                 )}
               </div>
             </div>
